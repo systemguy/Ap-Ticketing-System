@@ -1,0 +1,21 @@
+{
+  "name": "ap_ticketing",
+  "version": "1.0.0",
+  "description": "Backend API for the AP Ticketing System (COSC 3339 Group 1)",
+  "main": "app.js",
+  "scripts": {
+    "start": "node --env-file=.env app.js",
+    "dev": "node --watch --env-file=.env app.js"
+  },
+  "keywords": [],
+  "author": "Dayan Kijege",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "crypto": "^1.0.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.6.0",
+    "mongoose": "^9.9.5"
+  }
+}

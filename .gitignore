@@ -1,0 +1,5 @@
+node_modules
+.env
+credentials.txt
+template_mongo_con.txt
+.DS_Store
