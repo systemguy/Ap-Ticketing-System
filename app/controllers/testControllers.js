@@ -5,6 +5,7 @@ const User = require('../models/user')
 const Team = require('../models/team')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
+const owasp = require('owasp-password-strength-test');
 const  authconfig = require('../../config/auth')
 
 function generateToken(params = {}) {
@@ -29,6 +30,11 @@ router.post('/register/', async(req,res)=>{
 	try{
 		if(await User.findOne({email}))
 			return res.status(400).send({error: 'User already exists'})
+		var passresult = owasp.test(req.body.password)
+		if(passresult.strong == false){
+                return res.status(400).send({error: passresult.errors})
+               
+        }
 		const user = await User.create(req.body)
 		return res.send({
 			user,
