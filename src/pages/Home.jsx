@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 function Home() {
   return (
     <div className="page">
-      <h1>AP Ticketing System</h1>
+      <h1>Residence Ticketing</h1>
       <p>
-        This is a system for residents and staff to report and track maintenance
-        issues in the apartment community.
+        A quiet, orderly way for residents and staff to report and track
+        maintenance matters across the property.
       </p>
 
       <div>
@@ -14,12 +14,12 @@ function Home() {
         <Link to="/incidents" className="btn btn-outline">View Active Incidents</Link>
       </div>
 
-      <div className="card" style={{ marginTop: '30px' }}>
+      <div className="card" style={{ marginTop: '40px' }}>
         <h3>How it works</h3>
         <ul>
-          <li>Residents report an issue (like a leak or broken light).</li>
-          <li>The issue is saved as a ticket with a status.</li>
-          <li>Staff can update the ticket until it's resolved.</li>
+          <li>Residents report an issue, such as a leak or a broken fixture.</li>
+          <li>The issue is logged as a ticket with a clear status.</li>
+          <li>Staff update the ticket until the matter is resolved.</li>
         </ul>
       </div>
     </div>
