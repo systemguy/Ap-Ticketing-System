@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:4000';
+const API_URL = 'http://localhost:3000';
 
 // placeholder data so the page shows something before the backend is connected
 const placeholderIncidents = [
@@ -13,7 +13,7 @@ function Incidents() {
   const [incidents, setIncidents] = useState(placeholderIncidents);
 
   useEffect(() => {
-    fetch(`${API_URL}/incidents`)
+    fetch(`${API_URL}/tickets`)
       .then((res) => res.json())
       .then((data) => setIncidents(data))
       .catch(() => {
@@ -31,6 +31,7 @@ function Incidents() {
             <th>Ticket</th>
             <th>Issue</th>
             <th>Location</th>
+            <th>Team</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -40,8 +41,10 @@ function Incidents() {
               <td>{incident.id}</td>
               <td>{incident.title}</td>
               <td>{incident.unit}</td>
+              <td>{incident.team}</td>
               <td>
-                <span className={`status status-${incident.status}`}>
+                
+                <span className={`Resolved: -${incident.resolved}`}> 
                   {incident.status}
                 </span>
               </td>
