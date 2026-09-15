@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 // change this if your backend runs somewhere else
-const API_URL = 'http://localhost:4000';
+const API_URL = 'http://localhost:3000';
 
 function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -13,7 +13,7 @@ function Auth() {
   function handleSubmit(e) {
     e.preventDefault();
 
-    const url = isLogin ? `${API_URL}/auth/login` : `${API_URL}/auth/register`;
+    const url = isLogin ? `${API_URL}/login` : `${API_URL}/register`;
     const body = isLogin ? { email, password } : { name, email, password };
 
     fetch(url, {
