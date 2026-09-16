@@ -5,6 +5,7 @@ const User = require('../models/user')
 const Team = require('../models/team')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
+const owasp = require('owasp-password-strength-test');
 const  authconfig = require('../../config/auth')
 
 function generateToken(params = {}) {
@@ -29,6 +30,11 @@ router.post('/register/', async(req,res)=>{
 	try{
 		if(await User.findOne({email}))
 			return res.status(400).send({error: 'User already exists'})
+		var passresult = owasp.test(req.body.password)
+		if(passresult.strong == false){
+                return res.status(400).send({error: passresult.errors})
+               
+        }
 		const user = await User.create(req.body)
 		return res.send({
 			user,
@@ -44,14 +50,20 @@ router.post('/register/', async(req,res)=>{
 
 router.post('/login/', async(req, res)=>{
 	const {email, password} = req.body
-	console.log(req.body)
+	//console.log(req.body)
 	try{
 		const user = await User.findOne({email}).select('+password')
-		if(!user)
+		if(!user){
+			console.log('Invalid username and passsword')
 			return res.status(400).send({error: 'Invalid username and passsword'})
-		if(!await bcrypt.compare(password,user.password))
+		}
+		if(!await bcrypt.compare(password,user.password)){
+			console.log('Invalid username and passsword')
 			return res.status(400).send({error: 'Invalid username and passsword'})
+		}
 		user.password = undefined
+		console.log(user)
+		
 		return res.send({
                         user,
                         token: generateToken({id: user.id, team: user.team}, "Stack",{

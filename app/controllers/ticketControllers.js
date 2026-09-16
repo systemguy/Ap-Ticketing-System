@@ -26,9 +26,9 @@ router.get('/', async (req, res)=>{
 
 router.post('/create', async(req, res)=>{
 	try{
-		const {title, type, description, team} = req.body
+		const {title, description, team, unit} = req.body
 		const userPosted = req.accountId
-		const ticket = await Ticket.create({userPosted, title, type, description, team, resolved: false})
+		const ticket = await Ticket.create({userPosted, title, description, team, unit, resolved: false})
 		return res.send({ticket})
 	}catch(err){
 		console.log(err)

@@ -1,6 +1,6 @@
 // database/index.js
 // Original by Paulo Avila. Modified by Dayan Kijege.
-
+require('dotenv').config()
 global.crypto = require('crypto').webcrypto
 const mongoose = require('mongoose')
 

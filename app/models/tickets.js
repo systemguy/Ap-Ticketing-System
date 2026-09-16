@@ -20,11 +20,11 @@ const TicketScheme= new mongoose.Schema({
 		required: true,
 		select: true
 	},
-	type:{
-		type:String,
-		required: true,
-		select: true
-	},
+	// type:{
+	// 	type:String,
+	// 	required: true,
+	// 	select: true
+	// },
 	description:{
 		type: String,
 		required: true,
@@ -33,6 +33,11 @@ const TicketScheme= new mongoose.Schema({
 	team:{
 		type:String,
 		ref: 'Team',
+		required:  true,
+		select: true
+	},
+	unit:{
+		type:String,
 		required:  true,
 		select: true
 	},
