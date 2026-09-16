@@ -11,6 +11,9 @@ const placeholderIncidents = [
 
 function Incidents() {
   const [incidents, setIncidents] = useState(placeholderIncidents);
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState('');
+  const [unit, setUnit] = useState('');
 
   useEffect(() => {
     fetch(`${API_URL}/incidents`)
@@ -21,9 +24,54 @@ function Incidents() {
       });
   }, []);
 
+  function handleCreate(e) {
+    e.preventDefault();
+
+    const newIncident = {
+      id: `INC-${Math.floor(1000 + Math.random() * 9000)}`,
+      title,
+      unit,
+      status: 'open',
+    };
+
+    fetch(`${API_URL}/incidents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newIncident),
+    }).catch(() => {
+      // backend not connected yet, still show it locally
+    });
+
+    setIncidents([newIncident, ...incidents]);
+    setTitle('');
+    setUnit('');
+    setShowForm(false);
+  }
+
   return (
     <div className="page">
-      <h1>Active Incidents</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>Active Incidents</h1>
+        <button className="btn" onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Cancel' : 'Create Ticket'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="card">
+          <form onSubmit={handleCreate}>
+            <div className="form-group">
+              <label>Issue</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+            </div>
+            <div className="form-group">
+              <label>Location</label>
+              <input value={unit} onChange={(e) => setUnit(e.target.value)} required />
+            </div>
+            <button type="submit" className="btn">Submit Ticket</button>
+          </form>
+        </div>
+      )}
 
       <table>
         <thead>
