@@ -12,6 +12,7 @@ const placeholderIncidents = [
 function Incidents() {
   const [incidents, setIncidents] = useState(placeholderIncidents);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [title, setTitle] = useState('');
   const [unit, setUnit] = useState('');
 
@@ -24,42 +25,85 @@ function Incidents() {
       });
   }, []);
 
-  function handleCreate(e) {
-    e.preventDefault();
-
-    const newIncident = {
-      id: `INC-${Math.floor(1000 + Math.random() * 9000)}`,
-      title,
-      unit,
-      status: 'open',
-    };
-
-    fetch(`${API_URL}/incidents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newIncident),
-    }).catch(() => {
-      // backend not connected yet, still show it locally
-    });
-
-    setIncidents([newIncident, ...incidents]);
+  function openCreateForm() {
+    setEditingId(null);
     setTitle('');
     setUnit('');
+    setShowForm(true);
+  }
+
+  function openEditForm(incident) {
+    setEditingId(incident.id);
+    setTitle(incident.title);
+    setUnit(incident.unit);
+    setShowForm(true);
+  }
+
+  function handleDelete(id) {
+    fetch(`${API_URL}/incidents/${id}`, { method: 'DELETE' }).catch(() => {
+      // backend not connected yet, still remove it locally
+    });
+    setIncidents(incidents.filter((incident) => incident.id !== id));
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+
+    if (editingId) {
+      // editing an existing incident
+      const updated = { title, unit };
+
+      fetch(`${API_URL}/incidents/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      }).catch(() => {
+        // backend not connected yet, still update it locally
+      });
+
+      setIncidents(
+        incidents.map((incident) =>
+          incident.id === editingId ? { ...incident, ...updated } : incident
+        )
+      );
+    } else {
+      // creating a new incident
+      const newIncident = {
+        id: `INC-${Math.floor(1000 + Math.random() * 9000)}`,
+        title,
+        unit,
+        status: 'open',
+      };
+
+      fetch(`${API_URL}/incidents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newIncident),
+      }).catch(() => {
+        // backend not connected yet, still show it locally
+      });
+
+      setIncidents([newIncident, ...incidents]);
+    }
+
     setShowForm(false);
+    setEditingId(null);
+    setTitle('');
+    setUnit('');
   }
 
   return (
     <div className="page">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>Active Incidents</h1>
-        <button className="btn" onClick={() => setShowForm(!showForm)}>
+        <button className="btn" onClick={showForm ? () => setShowForm(false) : openCreateForm}>
           {showForm ? 'Cancel' : 'Create Ticket'}
         </button>
       </div>
 
       {showForm && (
         <div className="card">
-          <form onSubmit={handleCreate}>
+          <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label>Issue</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)} required />
@@ -68,7 +112,9 @@ function Incidents() {
               <label>Location</label>
               <input value={unit} onChange={(e) => setUnit(e.target.value)} required />
             </div>
-            <button type="submit" className="btn">Submit Ticket</button>
+            <button type="submit" className="btn">
+              {editingId ? 'Save Changes' : 'Submit Ticket'}
+            </button>
           </form>
         </div>
       )}
@@ -80,6 +126,7 @@ function Incidents() {
             <th>Issue</th>
             <th>Location</th>
             <th>Status</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -92,6 +139,14 @@ function Incidents() {
                 <span className={`status status-${incident.status}`}>
                   {incident.status}
                 </span>
+              </td>
+              <td>
+                <button className="btn btn-outline btn-small" onClick={() => openEditForm(incident)}>
+                  Edit
+                </button>
+                <button className="btn btn-outline btn-small" onClick={() => handleDelete(incident.id)}>
+                  Delete
+                </button>
               </td>
             </tr>
           ))}

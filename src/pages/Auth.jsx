@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 // change this if your backend runs somewhere else
 const API_URL = 'http://localhost:4000';
 
 function Auth() {
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -23,7 +25,9 @@ function Auth() {
     })
       .then((res) => res.json())
       .then(() => {
+        localStorage.setItem('loggedIn', 'true');
         setMessage(isLogin ? 'Logged in!' : 'Account created!');
+        navigate('/');
       })
       .catch(() => {
         setMessage('Could not connect to the server yet.');

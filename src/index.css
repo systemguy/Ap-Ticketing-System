@@ -156,6 +156,8 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 500;
+  white-space: nowrap;
+  display: inline-block;
 }
 
 .status-open {
@@ -171,4 +173,10 @@ th {
 .status-resolved {
   background-color: #e6ebe2;
   color: #4d6b45;
+}
+
+.btn-small {
+  padding: 6px 14px;
+  font-size: 10px;
+  margin-right: 8px;
 }
