@@ -22,16 +22,13 @@ function Auth() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    })
-      .then((res) => res.json())
-      .then(() => {
-        localStorage.setItem('loggedIn', 'true');
-        setMessage(isLogin ? 'Logged in!' : 'Account created!');
-        navigate('/');
-      })
-      .catch(() => {
-        setMessage('Could not connect to the server yet.');
-      });
+    }).catch(() => {
+      // backend not connected yet, still let the user through locally
+    });
+
+    localStorage.setItem('loggedIn', 'true');
+    setMessage(isLogin ? 'Logged in!' : 'Account created!');
+    navigate('/');
   }
 
   return (

@@ -2,6 +2,15 @@ import { useState, useEffect } from 'react';
 
 const API_URL = 'http://localhost:4000';
 
+// matches the departments and services set up in the database
+const departmentServices = {
+  HVAC: ['ac repair', 'ac test'],
+  Plumbing: ['pipe repairs', 'infiltration repairs'],
+  Electrical: ['wiring fixes', 'lighting repairs'],
+};
+
+const departments = Object.keys(departmentServices);
+
 // placeholder data so the page shows something before the backend is connected
 const placeholderIncidents = [
   { id: 'INC-1042', title: 'Leaking pipe under kitchen sink', unit: 'Bldg 3, Unit 214', status: 'open' },
@@ -15,6 +24,8 @@ function Incidents() {
   const [editingId, setEditingId] = useState(null);
   const [title, setTitle] = useState('');
   const [unit, setUnit] = useState('');
+  const [department, setDepartment] = useState(departments[0]);
+  const [service, setService] = useState(departmentServices[departments[0]][0]);
 
   useEffect(() => {
     fetch(`${API_URL}/incidents`)
@@ -25,10 +36,17 @@ function Incidents() {
       });
   }, []);
 
+  function handleDepartmentChange(newDepartment) {
+    setDepartment(newDepartment);
+    setService(departmentServices[newDepartment][0]);
+  }
+
   function openCreateForm() {
     setEditingId(null);
     setTitle('');
     setUnit('');
+    setDepartment(departments[0]);
+    setService(departmentServices[departments[0]][0]);
     setShowForm(true);
   }
 
@@ -36,6 +54,9 @@ function Incidents() {
     setEditingId(incident.id);
     setTitle(incident.title);
     setUnit(incident.unit);
+    const dept = incident.department || departments[0];
+    setDepartment(dept);
+    setService(incident.service || departmentServices[dept][0]);
     setShowForm(true);
   }
 
@@ -51,7 +72,7 @@ function Incidents() {
 
     if (editingId) {
       // editing an existing incident
-      const updated = { title, unit };
+      const updated = { title, unit, department, service };
 
       fetch(`${API_URL}/incidents/${editingId}`, {
         method: 'PUT',
@@ -72,6 +93,8 @@ function Incidents() {
         id: `INC-${Math.floor(1000 + Math.random() * 9000)}`,
         title,
         unit,
+        department,
+        service,
         status: 'open',
       };
 
@@ -90,6 +113,8 @@ function Incidents() {
     setEditingId(null);
     setTitle('');
     setUnit('');
+    setDepartment(departments[0]);
+    setService(departmentServices[departments[0]][0]);
   }
 
   return (
@@ -111,6 +136,22 @@ function Incidents() {
             <div className="form-group">
               <label>Location</label>
               <input value={unit} onChange={(e) => setUnit(e.target.value)} required />
+            </div>
+            <div className="form-group">
+              <label>Department / Team</label>
+              <select value={department} onChange={(e) => handleDepartmentChange(e.target.value)}>
+                {departments.map((dept) => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Service</label>
+              <select value={service} onChange={(e) => setService(e.target.value)}>
+                {departmentServices[department].map((svc) => (
+                  <option key={svc} value={svc}>{svc}</option>
+                ))}
+              </select>
             </div>
             <button type="submit" className="btn">
               {editingId ? 'Save Changes' : 'Submit Ticket'}

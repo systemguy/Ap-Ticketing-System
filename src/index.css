@@ -123,7 +123,19 @@ p {
   color: #1c1c1c;
 }
 
-.form-group input:focus {
+.form-group select {
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  border-bottom: 1px solid #ccc2ae;
+  background: transparent;
+  font-size: 15px;
+  font-family: 'Jost', sans-serif;
+  color: #1c1c1c;
+}
+
+.form-group input:focus,
+.form-group select:focus {
   outline: none;
   border-bottom-color: #a9812f;
 }
