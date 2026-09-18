@@ -65,6 +65,7 @@ function Auth() {
       if (data.token) {
         localStorage.setItem('token', data.token); // Save Bearer token
       }
+      localStorage.setItem('loggedIn', 'true');
       setMessage("Login successful")
       navigate('/incidents')
     }catch(err){

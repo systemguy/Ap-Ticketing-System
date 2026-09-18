@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
 
 function Home() {
+  const isLoggedIn = localStorage.getItem('loggedIn') === 'true';
+
   return (
     <div className="page">
       <h1>Residence Ticketing</h1>
@@ -10,7 +12,9 @@ function Home() {
       </p>
 
       <div>
-        <Link to="/login" className="btn">Login / Register</Link>
+        {!isLoggedIn && (
+          <Link to="/login" className="btn">Login / Register</Link>
+        )}
         <Link to="/incidents" className="btn btn-outline">View Active Incidents</Link>
       </div>
 
