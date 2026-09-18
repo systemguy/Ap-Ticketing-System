@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 // change this if your backend runs somewhere else
-const API_URL = 'http://localhost:3000';
+const API_URL = 'http://159.65.229.254:3000';
 
 function Auth() {
   const [isLogin, setIsLogin] = useState(true);

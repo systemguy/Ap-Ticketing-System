@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:3000'; // Set your Express backend port
+const API_URL = 'http://159.65.229.254:3000'; // Set your Express backend port
 
 // matches the departments and services set up in the database
 const departmentServices = {
