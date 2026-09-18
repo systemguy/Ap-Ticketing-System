@@ -29,7 +29,7 @@ module.exports = (req, res, next) => {
         }
 
         req.accountId = decoded.id;
-	req.team = decoded.team
+	    req.team = decoded.team
         return next();
     });
 };

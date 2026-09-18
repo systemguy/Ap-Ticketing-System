@@ -36,6 +36,11 @@ const TicketScheme= new mongoose.Schema({
 		required:  true,
 		select: true
 	},
+	unit:{
+		type:String,
+		required:  true,
+		select: true
+	},
 	resolved:{
 		type: Boolean,
 		required: false,
