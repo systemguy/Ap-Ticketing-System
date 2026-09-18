@@ -10,10 +10,10 @@ router.use(authMiddleware)
 
 router.get('/', async (req, res)=>{
 	try{
-	const {userId, userTeam} = req
+	const {accountId, team} = req
 	const tickets = await Ticket.find({
-					$or:[{userPosted: req.accountId},
-					{team: req.team}]
+					$or:[{userPosted: accountId},
+					{team: team}]
 					}).populate('userPosted', 'name email');
 	return res.status(200).json({ tickets });
 	}
@@ -26,9 +26,9 @@ router.get('/', async (req, res)=>{
 
 router.post('/create', async(req, res)=>{
 	try{
-		const {title, type, description, team} = req.body
+		const {title, description, team, unit, type} = req.body
 		const userPosted = req.accountId
-		const ticket = await Ticket.create({userPosted, title, type, description, team, resolved: false})
+		const ticket = await Ticket.create({userPosted, title, description, team, unit, type, resolved: false})
 		return res.send({ticket})
 	}catch(err){
 		console.log(err)
@@ -37,17 +37,43 @@ router.post('/create', async(req, res)=>{
 
 })
 
-router.put('/update/:ticketId', async(req, res) =>{
+router.put('/delete/:ticketId', async(req, res) =>{
 	try{
 		const valticket = await Ticket.findById(req.params.ticketId)
-		if(req.accountId !== valticket.userPosted && req.team !== valticket.team){
-                        return res.status(400).send({error: Unauthorized})
+		const {accountId, team} = req
+		if(accountId !== valticket.userPosted._id && team !== valticket.team){
+						console.log(err)
+                        return res.status(400).send({error: "Unauthorized"})
                 }
 
 
 		const {resolved} = (req.body)
 		const ticket = await Ticket.findByIdAndUpdate(req.params.ticketId,
 			{resolved},
+			{new: true})
+		return res.send(ticket)
+	}catch(err){
+		console.log(err)
+        res.status(500).json({error: 'failed to update tickets'})
+	}
+})
+
+router.put('/update/:ticketId', async(req, res) =>{
+	try{
+
+		
+		const valticket = await Ticket.findById(req.params.ticketId)
+		if(req.accountId !== valticket.userPosted._id.toString() && req.team !== valticket.team){
+						console.log(req.accountId)
+						console.log(valticket.userPosted._id.toString())
+						console.log(valticket.team)
+                        return res.status(400).send({error: "Unauthorized"})
+        }
+
+
+		const {title, description, team, unit, type} = req.body
+		const ticket = await Ticket.findByIdAndUpdate(req.params.ticketId,
+			{title, description, team, unit, type},
 			{new: true})
 		return res.send(ticket)
 	}catch(err){
