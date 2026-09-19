@@ -1,7 +1,5 @@
 # AP Ticketing System
 
-A full-stack incident and maintenance management platform built for a residential apartment community, giving residents a single point of contact to report issues and giving maintenance staff a way to track, prioritize, and resolve them, with automatic escalation for overdue tickets.
-
 **Course:** COSC-3339-01, Software Engineering — St. Edward's University
 
 **Team:** Adriana Teruel, Dayan Kijege, Paulo Avila, Madison Marfuggi
