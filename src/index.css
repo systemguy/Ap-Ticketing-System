@@ -123,19 +123,7 @@ p {
   color: #1c1c1c;
 }
 
-.form-group select {
-  width: 100%;
-  padding: 10px 0;
-  border: none;
-  border-bottom: 1px solid #ccc2ae;
-  background: transparent;
-  font-size: 15px;
-  font-family: 'Jost', sans-serif;
-  color: #1c1c1c;
-}
-
-.form-group input:focus,
-.form-group select:focus {
+.form-group input:focus {
   outline: none;
   border-bottom-color: #a9812f;
 }
@@ -168,8 +156,6 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 500;
-  white-space: nowrap;
-  display: inline-block;
 }
 
 .status-open {
@@ -185,10 +171,4 @@ th {
 .status-resolved {
   background-color: #e6ebe2;
   color: #4d6b45;
-}
-
-.btn-small {
-  padding: 6px 14px;
-  font-size: 10px;
-  margin-right: 8px;
 }

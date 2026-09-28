@@ -13,10 +13,13 @@ Then open http://localhost:5173
 
 The API URL is set at the top of `src/pages/Auth.jsx` and `src/pages/Incidents.jsx`:
 
-const API_URL = 'http://localhost:4000';
+const API_URL = 'http://159.65.229.254:3000';
 
 Change that to wherever the backend is running. Expected endpoints:
 
-- POST /auth/login
-- POST /auth/register
-- GET /incidents
+- POST /login
+- POST /register
+- GET /tickets
+- PUT /tickets/update/:id
+- PUT /tickets/delete/:id
+- POST /tickets/create

@@ -1,25 +1,19 @@
 import { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:4000';
+const API_URL = 'http://159.65.229.254:3000'; // Set your Express backend port
 
 // matches the departments and services set up in the database
 const departmentServices = {
   HVAC: ['ac repair', 'ac test'],
   Plumbing: ['pipe repairs', 'infiltration repairs'],
   Electrical: ['wiring fixes', 'lighting repairs'],
+  OIT: ['network setup', 'hardware fix'],
 };
 
 const departments = Object.keys(departmentServices);
 
-// placeholder data so the page shows something before the backend is connected
-const placeholderIncidents = [
-  { id: 'INC-1042', title: 'Leaking pipe under kitchen sink', unit: 'Bldg 3, Unit 214', status: 'open' },
-  { id: 'INC-1041', title: 'Hallway light out on 2nd floor', unit: 'Bldg 1, 2nd floor', status: 'in-progress' },
-  { id: 'INC-1038', title: 'AC unit not cooling', unit: 'Bldg 2, Unit 108', status: 'resolved' },
-];
-
 function Incidents() {
-  const [incidents, setIncidents] = useState(placeholderIncidents);
+  const [incidents, setIncidents] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [title, setTitle] = useState('');
@@ -27,12 +21,34 @@ function Incidents() {
   const [department, setDepartment] = useState(departments[0]);
   const [service, setService] = useState(departmentServices[departments[0]][0]);
 
+  // Fetch tickets from database on mount & filter out resolved ones
   useEffect(() => {
-    fetch(`${API_URL}/incidents`)
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    fetch(`${API_URL}/tickets`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
       .then((res) => res.json())
-      .then((data) => setIncidents(data))
-      .catch(() => {
-        // backend not connected yet, keep showing placeholder data
+      .then((data) => {
+        let ticketArray = [];
+        if (data?.tickets && Array.isArray(data.tickets)) {
+          ticketArray = data.tickets;
+        } else if (Array.isArray(data)) {
+          ticketArray = data;
+        }
+
+        // 👈 Filter out any tickets where resolved === true
+        const activeTickets = ticketArray.filter((ticket) => !ticket.resolved);
+        console.log(activeTickets)
+        setIncidents(activeTickets);
+      })
+      .catch((err) => {
+        console.error('Error loading tickets:', err);
       });
   }, []);
 
@@ -51,62 +67,85 @@ function Incidents() {
   }
 
   function openEditForm(incident) {
-    setEditingId(incident.id);
-    setTitle(incident.title);
-    setUnit(incident.unit);
-    const dept = incident.department || departments[0];
+    setEditingId(incident._id);
+    setTitle(incident.title || '');
+    setUnit(incident.unit || '');
+    const dept = incident.team || departments[0];
     setDepartment(dept);
-    setService(incident.service || departmentServices[dept][0]);
+    setService(incident.type || departmentServices[dept]?.[0] || '');
     setShowForm(true);
   }
 
   function handleDelete(id) {
-    fetch(`${API_URL}/incidents/${id}`, { method: 'DELETE' }).catch(() => {
-      // backend not connected yet, still remove it locally
-    });
-    setIncidents(incidents.filter((incident) => incident.id !== id));
+    const token = localStorage.getItem('token');
+
+    fetch(`${API_URL}/tickets/delete/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ resolved: true }),
+    }).catch((err) => console.error(err));
+
+    // Remove resolved ticket from display immediately
+    setIncidents(incidents.filter((incident) => incident._id !== id));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    const token = localStorage.getItem('token');
+
+    const payload = {
+      title,
+      unit,
+      description: title, // Satisfies description requirement
+      team: department,
+      type: service,
+    };
 
     if (editingId) {
       // editing an existing incident
-      const updated = { title, unit, department, service };
-
-      fetch(`${API_URL}/incidents/${editingId}`, {
+      console.log(token)
+      fetch(`${API_URL}/tickets/update/${editingId}`, {
+        
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      }).catch(() => {
-        // backend not connected yet, still update it locally
-      });
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      }).catch((err) => console.error(err));
 
       setIncidents(
         incidents.map((incident) =>
-          incident.id === editingId ? { ...incident, ...updated } : incident
+          incident._id === editingId ? { ...incident, ...payload } : incident
         )
       );
     } else {
       // creating a new incident
-      const newIncident = {
-        id: `INC-${Math.floor(1000 + Math.random() * 9000)}`,
-        title,
-        unit,
-        department,
-        service,
-        status: 'open',
-      };
+      try {
+        const res = await fetch(`${API_URL}/tickets/create`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
 
-      fetch(`${API_URL}/incidents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newIncident),
-      }).catch(() => {
-        // backend not connected yet, still show it locally
-      });
+        const data = await res.json();
 
-      setIncidents([newIncident, ...incidents]);
+        if (res.ok) {
+          const newTicket = data.ticket || data;
+          setIncidents([newTicket, ...incidents]);
+        } else {
+          const errText = Array.isArray(data.error) ? data.error.join(', ') : data.error;
+          alert(errText || 'Failed to create ticket');
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
 
     setShowForm(false);
@@ -148,7 +187,7 @@ function Incidents() {
             <div className="form-group">
               <label>Service</label>
               <select value={service} onChange={(e) => setService(e.target.value)}>
-                {departmentServices[department].map((svc) => (
+                {(departmentServices[department] || []).map((svc) => (
                   <option key={svc} value={svc}>{svc}</option>
                 ))}
               </select>
@@ -165,32 +204,37 @@ function Incidents() {
           <tr>
             <th>Ticket</th>
             <th>Issue</th>
+            <th>Type</th>
             <th>Location</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {incidents.map((incident) => (
-            <tr key={incident.id}>
-              <td>{incident.id}</td>
-              <td>{incident.title}</td>
-              <td>{incident.unit}</td>
-              <td>
-                <span className={`status status-${incident.status}`}>
-                  {incident.status}
-                </span>
-              </td>
-              <td>
-                <button className="btn btn-outline btn-small" onClick={() => openEditForm(incident)}>
-                  Edit
-                </button>
-                <button className="btn btn-outline btn-small" onClick={() => handleDelete(incident.id)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
+          {incidents.map((incident) => {
+            const statusLabel = incident.status || 'open';
+            return (
+              <tr key={incident._id}>
+                <td>{incident._id ? incident._id.slice(-6).toUpperCase() : incident.id}</td>
+                <td>{incident.title}</td>
+                <td>{incident.type}</td>
+                <td>{incident.unit}</td>
+                <td>
+                  <span className={`status status-${statusLabel}`}>
+                    {statusLabel}
+                  </span>
+                </td>
+                <td>
+                  <button className="btn btn-outline btn-small" onClick={() => openEditForm(incident)}>
+                    Edit
+                  </button>
+                  <button className="btn btn-outline btn-small" onClick={() => handleDelete(incident._id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
