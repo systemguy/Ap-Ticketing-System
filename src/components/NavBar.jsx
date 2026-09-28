@@ -6,6 +6,7 @@ function NavBar() {
       <Link to="/" className="logo">Residence Ticketing</Link>
       <div className="links">
         <Link to="/">Home</Link>
+        <Link to="/services">Services</Link>
         <Link to="/login">Login / Register</Link>
         <Link to="/incidents">Active Incidents</Link>
       </div>

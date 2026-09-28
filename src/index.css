@@ -172,3 +172,103 @@ th {
   background-color: #e6ebe2;
   color: #4d6b45;
 }
+
+/* ---- Sprint 1 fixes: wider incidents table, description, services page, delete dialog ---- */
+
+.page-wide {
+  max-width: 1100px;
+}
+
+.form-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 0;
+  border: none;
+  border-bottom: 1px solid #ccc2ae;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.5;
+  font-family: 'Jost', sans-serif;
+  color: #1c1c1c;
+  resize: vertical;
+}
+
+.form-group textarea:focus {
+  outline: none;
+  border-bottom-color: #a9812f;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.ticket-description {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b6b6b;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.muted {
+  font-size: 12px;
+  color: #6b6b6b;
+}
+
+.service-list {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.9;
+  color: #4a4a4a;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 28, 28, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.modal {
+  background: #ffffff;
+  border: 1px solid #e5ddcf;
+  max-width: 440px;
+  width: 100%;
+  padding: 32px;
+}
+
+.modal h3 {
+  margin-top: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.modal-actions .btn:last-child {
+  margin-right: 0;
+}
+
+.btn-danger {
+  background-color: #9a4a3a;
+  border-color: #9a4a3a;
+}
+
+.btn-danger:hover {
+  background-color: #7d3a2d;
+  border-color: #7d3a2d;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
