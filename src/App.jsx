@@ -4,6 +4,9 @@ import Home from './pages/Home';
 import Auth from './pages/Auth';
 import Incidents from './pages/Incidents';
 import Services from './pages/Services';
+import ProtectedRoute from './components/ProtectedRoute';
+import ProfilePage from './pages/ProfilePage';
+import IncidentTimelinePage from './pages/IncidentTimelinePage';
 
 function App() {
   return (
@@ -14,6 +17,10 @@ function App() {
         <Route path="/services" element={<Services />} />
         <Route path="/login" element={<Auth />} />
         <Route path="/incidents" element={<Incidents />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/incidents/:id/timeline" element={<IncidentTimelinePage />} />
+        </Route>
       </Routes>
     </div>
   );
