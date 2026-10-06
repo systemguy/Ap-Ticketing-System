@@ -1,3 +1,4 @@
+const { Timestamp } = require('mongodb')
 const mongoose = require('../../database')
 const bcrypt = require('bcryptjs')
 
@@ -30,10 +31,55 @@ const TicketScheme= new mongoose.Schema({
 		required: true,
 		select: true
 	},
-	team:{
-		type:String,
-		ref: 'Team',
-		required:  true,
+	userComment:{
+		type: String,
+		required: false,
+		select: true
+	},
+	solverComment:{
+		type: String,
+		required: false,
+		select: true
+	},
+	severity:{
+		type: Number,
+		required: true,
+		select: true
+	},
+	service: {
+		type: String,
+		ref: 'Service',
+		required: true,
+		select: true
+	},
+	status:{
+		type: String,
+		required: true,
+		select: true
+	},
+	createdAt:{
+		type: Date,
+		required: true,
+		select: true
+	},
+	acknowledgedAt:{
+		type: Date,
+		required:false,
+		select: true
+	},
+	investigatingAt:{
+		type: Date,
+		required: false,
+		select: true
+	},
+	resolvedAt:{
+		type: Date,
+		required: false,
+		select: true
+	},
+	closedAt:{
+		type: Date,
+		required: false,
 		select: true
 	},
 	unit:{
@@ -48,6 +94,7 @@ const TicketScheme= new mongoose.Schema({
 	}
 
 })
+
 
 const ticket = mongoose.model('Ticket', TicketScheme)
 

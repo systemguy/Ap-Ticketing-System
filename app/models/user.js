@@ -13,6 +13,11 @@ const UserScheme = new mongoose.Schema({
 		unique: true,
 		lowercase: true
 	},
+	bio: {
+		type: String,
+		required: true,
+		unique: true,
+	},
 	password: {
 		type: String,
 		required: true,
@@ -24,6 +29,11 @@ const UserScheme = new mongoose.Schema({
 		select: true
 	},
 	role: {
+		type: String,
+		required: false,
+		select: true,
+	},
+	photo: {
 		type: String,
 		required: false,
 		select: true,
