@@ -1,6 +1,7 @@
 // Central API wrapper. If your auth setup differs (cookie sessions, a
 // different localStorage key, a different base URL), change it HERE only.
-export const API_BASE = '/api';
+// Set VITE_API_URL in .env.local to use another backend (e.g. http://localhost:3000).
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://159.65.229.254:3000';
 export const TOKEN_KEY = 'token';
 
 export function getToken() {
@@ -14,9 +15,17 @@ export function getToken() {
 export function clearToken() {
   try {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem('loggedIn'); // flag read by Home.jsx
   } catch {
     /* ignore */
   }
+}
+
+// Backend errors look like { error: "..." } or { error: ["...", "..."] }.
+export function errorText(body, fallback) {
+  const detail = body?.error ?? body?.message;
+  if (Array.isArray(detail)) return detail.join(' ');
+  return detail || fallback;
 }
 
 export async function apiFetch(path, options = {}) {
@@ -33,8 +42,7 @@ export async function apiFetch(path, options = {}) {
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     try {
-      const body = await res.json();
-      if (body && body.message) message = body.message;
+      message = errorText(await res.json(), message);
     } catch {
       /* non-JSON error body */
     }

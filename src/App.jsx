@@ -16,8 +16,8 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/services" element={<Services />} />
         <Route path="/login" element={<Auth />} />
-        <Route path="/incidents" element={<Incidents />} />
         <Route element={<ProtectedRoute />}>
+          <Route path="/incidents" element={<Incidents />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/incidents/:id/timeline" element={<IncidentTimelinePage />} />
         </Route>

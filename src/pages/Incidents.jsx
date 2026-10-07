@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { departmentServices, departments } from '../data/services';
+import { SEVERITIES, severityOf } from '../data/severity';
+import { API_BASE, errorText } from '../api/client';
 
-const API_URL = 'http://159.65.229.254:3000'; // Set your Express backend port
+// The backend stores only the service, so find its department for the edit form.
+function departmentOf(service) {
+  return departments.find((d) => departmentServices[d].includes(service)) || departments[0];
+}
 
 // The backend populates userPosted with { name, email } when it lists tickets.
 // Fall back gracefully if it is missing (e.g. the account was removed).
@@ -32,6 +37,8 @@ function Incidents() {
   const [description, setDescription] = useState('');
   const [department, setDepartment] = useState(departments[0]);
   const [service, setService] = useState(departmentServices[departments[0]][0]);
+  const [severity, setSeverity] = useState('');
+  const [minSeverity, setMinSeverity] = useState(0); // list filter, 0 = all
   const [deleteTarget, setDeleteTarget] = useState(null); // ticket waiting on delete confirmation
   const [deleting, setDeleting] = useState(false);
 
@@ -39,7 +46,7 @@ function Incidents() {
   const loadTickets = useCallback(() => {
     if (!localStorage.getItem('token')) return Promise.resolve();
 
-    return fetch(`${API_URL}/tickets`, {
+    return fetch(`${API_BASE}/tickets`, {
       method: 'GET',
       headers: authHeaders(),
     })
@@ -87,6 +94,7 @@ function Incidents() {
     setDescription('');
     setDepartment(departments[0]);
     setService(departmentServices[departments[0]][0]);
+    setSeverity('');
   }
 
   function openCreateForm() {
@@ -96,6 +104,7 @@ function Incidents() {
     setDescription('');
     setDepartment(departments[0]);
     setService(departmentServices[departments[0]][0]);
+    setSeverity('');
     setShowForm(true);
   }
 
@@ -104,9 +113,10 @@ function Incidents() {
     setTitle(incident.title || '');
     setUnit(incident.unit || '');
     setDescription(incident.description || '');
-    const dept = incident.team || departments[0];
-    setDepartment(dept);
-    setService(incident.type || departmentServices[dept]?.[0] || '');
+    const svc = incident.service || incident.type || '';
+    setDepartment(departmentOf(svc));
+    setService(svc || departmentServices[departments[0]][0]);
+    setSeverity(incident.severity ? String(incident.severity) : '');
     setShowForm(true);
   }
 
@@ -116,7 +126,7 @@ function Incidents() {
     setDeleting(true);
 
     try {
-      const res = await fetch(`${API_URL}/tickets/delete/${target._id}`, {
+      const res = await fetch(`${API_BASE}/tickets/delete/${target._id}`, {
         method: 'PUT',
         headers: authHeaders(),
         body: JSON.stringify({ resolved: true }),
@@ -151,21 +161,23 @@ function Incidents() {
       title,
       unit,
       description: trimmedDescription,
-      team: department,
-      type: service,
+      service,
+      severity: Number(severity),
+      type: service, // the ticket model still requires type
     };
 
     if (editingId) {
       // editing an existing incident
       try {
-        const res = await fetch(`${API_URL}/tickets/update/${editingId}`, {
+        const res = await fetch(`${API_BASE}/tickets/edit/${editingId}`, {
           method: 'PUT',
           headers: authHeaders(),
           body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
-          alert('Could not save your changes. Please try again.');
+          const data = await res.json().catch(() => ({}));
+          alert(errorText(data, 'Could not save your changes. Please try again.'));
           return; // keep the form open so nothing typed is lost
         }
 
@@ -182,7 +194,7 @@ function Incidents() {
     } else {
       // creating a new incident
       try {
-        const res = await fetch(`${API_URL}/tickets/create`, {
+        const res = await fetch(`${API_BASE}/tickets/create`, {
           method: 'POST',
           headers: authHeaders(),
           body: JSON.stringify(payload),
@@ -191,8 +203,7 @@ function Incidents() {
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const errText = Array.isArray(data.error) ? data.error.join(', ') : data.error;
-          alert(errText || 'Failed to create ticket');
+          alert(errorText(data, 'Failed to create ticket'));
           return; // keep the form open so nothing typed is lost
         }
 
@@ -207,6 +218,9 @@ function Incidents() {
 
     resetForm();
   }
+
+  // Tickets without a severity (created before Sprint 2) only show under "All".
+  const visibleIncidents = incidents.filter((i) => (Number(i.severity) || 0) >= minSeverity);
 
   return (
     <div className="page page-wide">
@@ -273,6 +287,25 @@ function Incidents() {
                 ))}
               </select>
             </div>
+            <div className="form-group">
+              <label htmlFor="ticket-severity">Severity</label>
+              <select
+                id="ticket-severity"
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value)}
+                required
+              >
+                <option value="" disabled>Choose a severity</option>
+                {SEVERITIES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.value} - {s.label}</option>
+                ))}
+              </select>
+              <ul className="severity-help">
+                {SEVERITIES.map((s) => (
+                  <li key={s.value}><strong>{s.value} {s.label}:</strong> {s.description}</li>
+                ))}
+              </ul>
+            </div>
             <button type="submit" className="btn">
               {editingId ? 'Save Changes' : 'Submit Ticket'}
             </button>
@@ -280,13 +313,30 @@ function Incidents() {
         </div>
       )}
 
+      <div className="list-toolbar">
+        <label htmlFor="severity-filter">Show</label>
+        <select
+          id="severity-filter"
+          value={minSeverity}
+          onChange={(e) => setMinSeverity(Number(e.target.value))}
+        >
+          <option value={0}>All severities</option>
+          {SEVERITIES.slice(1).map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.value === 4 ? `${s.label} only` : `${s.label} and above`}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Ticket</th>
               <th>Issue</th>
-              <th>Type</th>
+              <th>Service</th>
+              <th>Severity</th>
               <th>Location</th>
               <th>Reported By</th>
               <th>Status</th>
@@ -294,8 +344,9 @@ function Incidents() {
             </tr>
           </thead>
           <tbody>
-            {incidents.map((incident) => {
-              const statusLabel = incident.status || 'open';
+            {visibleIncidents.map((incident) => {
+              const statusLabel = incident.status || 'Open';
+              const sev = severityOf(incident.severity);
               const reporter = getReporter(incident);
               // Older tickets stored a copy of the title as their description; don't show it twice
               const showDescription =
@@ -311,14 +362,23 @@ function Incidents() {
                       </div>
                     )}
                   </td>
-                  <td>{incident.type}</td>
+                  <td>{incident.service || incident.type}</td>
+                  <td>
+                    {sev ? (
+                      <span className={`severity severity-${sev.value}`} title={sev.description}>
+                        {sev.value} · {sev.label}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>{incident.unit}</td>
                   <td>
                     <div>{reporter.name}</div>
                     {reporter.email && <div className="muted">{reporter.email}</div>}
                   </td>
                   <td>
-                    <span className={`status status-${statusLabel}`}>
+                    <span className={`status status-${statusLabel.toLowerCase()}`}>
                       {statusLabel}
                     </span>
                   </td>
@@ -333,6 +393,11 @@ function Incidents() {
                 </tr>
               );
             })}
+            {visibleIncidents.length === 0 && (
+              <tr>
+                <td colSpan={8} className="muted">No incidents to show.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
