@@ -11,15 +11,16 @@ Then open http://localhost:5173
 
 ## Connecting to the backend
 
-The API URL is set at the top of `src/pages/Auth.jsx` and `src/pages/Incidents.jsx`:
+The backend URL is `API_BASE` in `src/api/client.js` and defaults to the droplet.
+To use another backend, create `.env.local` with:
 
-const API_URL = 'http://159.65.229.254:3000';
+VITE_API_URL=http://localhost:3000
 
-Change that to wherever the backend is running. Expected endpoints:
+Expected endpoints:
 
 - POST /login
 - POST /register
 - GET /tickets
-- PUT /tickets/update/:id
+- PUT /tickets/edit/:id
 - PUT /tickets/delete/:id
 - POST /tickets/create
