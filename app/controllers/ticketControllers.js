@@ -1,12 +1,18 @@
 const express = require('express')
+const { isValidObjectId } = require('mongoose')
 const Ticket = require('../models/tickets')
 const user = require('../models/user')
 const Team = require('../models/team')
 const Service = require('../models/services')
 const authMiddleware =  require('../middleware/authMiddleWare')
+const { NEXT_STATUSES, STATUS_DATES, isTicketSolver, isTicketOwner, isValidSeverity } = require('../helpers/tickets')
 
 const router = express.Router()
 router.use(authMiddleware)
+
+// Ids that can't exist get a clean 404 instead of a database error
+router.param('ticketId', (req, res, next, id) =>
+	isValidObjectId(id) ? next() : res.status(404).send({error: 'Ticket not found'}))
 
 
 router.get('/', async (req, res)=>{
@@ -19,7 +25,7 @@ router.get('/', async (req, res)=>{
 	const tickets = await Ticket.find({
 					$or:[{userPosted: accountId},
 					 {service: { $in: serviceNames }} ]
-					}).populate('userPosted', 'name email');
+					}).select('-events').populate('userPosted', 'name email');
 	return res.status(200).json({ tickets });
 	}
 	catch(err){
@@ -32,157 +38,192 @@ router.get('/', async (req, res)=>{
 router.post('/create', async(req, res)=>{
 	try{
 		const {title, description, service, severity, unit, userComment, type} = req.body
-		const serviceExists = await Service.findOne({name:service})
+		const serviceExists = typeof service === 'string' && await Service.findOne({name:service})
 		if(!serviceExists){
-			return res.status(401).json({error:"invalid service"})
+			return res.status(400).json({error:"invalid service"})
 		}
-		if((severity < 1 || severity > 4)){
-			return res.status(401).json({error:"invalid severity"})
+		if(!isValidSeverity(severity)){
+			return res.status(400).json({error:"invalid severity"})
 		}
 		const userPosted = req.accountId
 		const createdAt = Date.now()
 		const status = "Open"
-		const ticket = await Ticket.create({userPosted, title, description, service, unit, severity ,type,status, createdAt, userComment, resolved: false})
+		// The first timeline entry records who filed the ticket
+		const events = [{type: 'created', actor: userPosted, createdAt}]
+		const ticket = await Ticket.create({userPosted, title, description, service, unit, severity ,type,status, createdAt, userComment, resolved: false, events})
 		
 		return res.send({ticket})
 	}catch(err){
+		if(err.name === 'ValidationError'){
+			return res.status(400).json({error: Object.values(err.errors).map(e => e.message)})
+		}
 		console.log(err)
 		res.status(500).json({error: 'failed to create tickets'})
 	}
 
 })
 
+// Only the person who filed a ticket can delete it
 router.put('/delete/:ticketId', async(req, res) =>{
 	try{
-		const valticket = await Ticket.findById(req.params.ticketId)
-		const {accountId, team} = req
-		if(accountId !== valticket.userPosted._id && team !== valticket.team){
-						console.log(err)
-                        return res.status(400).send({error: "Unauthorized"})
-                }
-
-
-		const {resolved} = (req.body)
-		const ticket = await Ticket.findByIdAndUpdate(req.params.ticketId,
-			{resolved},
-			{new: true})
-		return res.send(ticket)
+		const ticket = await Ticket.findById(req.params.ticketId)
+		if(!ticket){
+			return res.status(404).send({error: 'Ticket not found'})
+		}
+		if(!isTicketOwner(req.accountId, ticket)){
+			return res.status(403).send({error: 'Only the person who filed this ticket can delete it'})
+		}
+		await ticket.deleteOne()
+		return res.send({deleted: true, ticketId: ticket.id})
 	}catch(err){
 		console.log(err)
-        res.status(500).json({error: 'failed to update tickets'})
+		res.status(500).json({error: 'failed to delete ticket'})
 	}
 })
 
+// The reporter who filed a ticket edits its details. Solvers add notes instead
+// (POST /tickets/:ticketId/comments), so neither side can change the other's words.
 router.put('/edit/:ticketId', async(req, res) =>{
 	try{
-
-		
-		const valticket = await Ticket.findById(req.params.ticketId)
-		if(req.accountId !== valticket.userPosted._id.toString() && req.team !== valticket.team){
-						console.log(req.accountId)
-						console.log(valticket.userPosted._id.toString())
-						console.log(valticket.team)
-                        return res.status(400).send({error: "Unauthorized"})
-        }
-		
-
-		const {title, description, team, unit,severity,service, type} = req.body
-
-		const serviceExists = await Service.findOne({name: service})
-		let ticker = null
-		if(!serviceExists){
-			res.status(401).json({error:"invalid service"})
+		const ticket = await Ticket.findById(req.params.ticketId)
+		if(!ticket){
+			return res.status(404).send({error: 'Ticket not found'})
 		}
-		if(!(0<severity<=4)){
-			return res.status(401).send("invalid severity")
+		if(!isTicketOwner(req.accountId, ticket)){
+			return res.status(403).send({error: 'Only the person who filed this ticket can edit it'})
 		}
-		if(req.accountId == valticket.userPosted._id.toString()){
-			const {userComment} = req.body
-			const {solverComment} = req.body
-			if(solverComment){  return res.status(400).send({error: "Unauthorized"})}
-			ticket = await Ticket.findByIdAndUpdate(req.params.ticketId,
-			{title, description, team, unit, severity, type, userComment},
-			{new: true})
+		const {title, description, unit, severity, service} = req.body
+		const blank = Object.entries({title, description, unit}).find(([, value]) => typeof value !== 'string' || !value.trim())
+		if(blank){
+			return res.status(400).send({error: `${blank[0]} is required`})
 		}
-		if(req.team == valticket.team){
-			const {solverComment} = req.body
-			const {userComment} = req.body
-			if(userComment){  return res.status(400).send({error: "Unauthorized"})}
-			ticket = await Ticket.findByIdAndUpdate(req.params.ticketId,
-			{title, description, team, unit, severity, type, solverComment},
-			{new: true})
+		if(typeof service !== 'string' || !await Service.exists({name: service})){
+			return res.status(400).send({error: 'invalid service'})
 		}
-		
-		return res.send(ticket)
+		if(!isValidSeverity(severity)){
+			return res.status(400).send({error: 'invalid severity'})
+		}
+		const changes = {title: title.trim(), description: description.trim(), unit: unit.trim(), service, severity: Number(severity)}
+		const fields = Object.keys(changes).filter(key => String(changes[key]) !== String(ticket[key] ?? ''))
+		if(!fields.length){
+			return res.send(ticket)
+		}
+		// type mirrors service because the model still requires it
+		const updated = await Ticket.findByIdAndUpdate(ticket._id,
+			{$set: {...changes, type: service}, $push: {events: {type: 'edited', actor: req.accountId, fields}}},
+			{returnDocument: 'after'})
+		return res.send(updated)
 	}catch(err){
 		console.log(err)
-        res.status(500).json({error: 'failed to update tickets'})
+		res.status(500).json({error: 'failed to update tickets'})
 	}
 })
+
+// Solvers on the ticket's team move it through the lifecycle (see NEXT_STATUSES).
+// Body: { status } with the status to move to. Without it, the ticket moves one step forward.
 router.put('/update/:ticketId', async(req, res) =>{
 	try{
-
-		
-		const valticket = await Ticket.findById(req.params.ticketId)
-		const service = await Service.findOne({ teamId: req.team, name: valticket.service});
-		//const serviceNames = userServices.map(service => service.name);
-		console.log(service)
-		//console.log(serviceNames)
-		//console.log(valticket.service)
-		//console.log(userServices.includes(valticket.service))
-		if(!service){
-						console.log(req.accountId)
-						console.log(valticket.userPosted._id.toString())
-						console.log(valticket.team)
-                        return res.status(400).send({error: "Unauthorized"})
-        }
-		//const {title, description, team, unit, type} = req.body
-		let newStatus = "open"
-		// let ticket = null
-		const date = Date.now()
-		const closedAt = Date.now()
-		let payload = {}	
-		switch(valticket.status){
-			case "Open":
-				newStatus = "Acknowledged"
-				payload = {status: newStatus,acknowledgedAt: date }
-				// ticket = await Ticket.findByIdAndUpdate(req.params.ticketId,
-				// {status: newStatus,acceptedAt },
-				// {new: true})
-				// res.send(ticket)
-				break
-			case "Acknowledged":
-				newStatus = "Investigating"
-				payload = {status: newStatus,investigatingAt: date }
-				// ticket = await Ticket.findByIdAndUpdate(req.params.ticketId,
-				// {status: newStatus,closedAt },
-				// {new: true})
-				//return res.send(ticket)
-				break;
-			case "Investigating":
-				newStatus = "Resolved"
-				payload = {status: newStatus,resolvedAt: date }
-				
-				break;
-			case "Resolved":
-				newStatus = "Closed"
-				payload = {status: newStatus,closedAt: date }
-			
-				break;
-			case "Closed":
-				newStatus = "Closed"
-				return res.status(200).send("already closed")
-				break;
-			
-
+		const ticket = await Ticket.findById(req.params.ticketId)
+		if(!ticket){
+			return res.status(404).send({error: 'Ticket not found'})
 		}
-		const ticket = await Ticket.findByIdAndUpdate(req.params.ticketId, payload, {new: true})
-			// {status: newStatus, },
-			// {new: true})
-		return res.send(ticket)
+		if(!await isTicketSolver(req.team, ticket)){
+			return res.status(403).send({error: `Only the team that handles ${ticket.service} can change this ticket's status`})
+		}
+		const from = ticket.status
+		const allowed = NEXT_STATUSES[from] || []
+		const to = req.body?.status ?? allowed[0]
+		if(typeof to !== 'string' || !allowed.includes(to)){
+			const reason = to === from ? `This ticket is already ${from}.` : `Can't move a ticket from ${from} to ${to}.`
+			const options = allowed.length ? ` From ${from} it can only go to ${allowed.join(' or ')}.` : ''
+			return res.status(409).send({error: reason + options})
+		}
+		const now = new Date()
+		const update = {status: to}
+		if(STATUS_DATES[to]) update[STATUS_DATES[to]] = now
+		const events = [{type: 'status_change', actor: req.accountId, from, to, createdAt: now}]
+		// Acknowledging a ticket assigns it to the solver who acknowledged it
+		if(to === 'Acknowledged' && ticket.assignedTo?.toString() !== req.accountId){
+			const [solver, previous] = await Promise.all([
+				user.findById(req.accountId).select('name'),
+				ticket.assignedTo ? user.findById(ticket.assignedTo).select('name') : null,
+			])
+			update.assignedTo = req.accountId
+			events.push({type: 'assignment_change', actor: req.accountId, from: previous?.name, to: solver?.name, createdAt: now})
+		}
+		// Matching on the old status makes this fail if someone else changed the ticket first
+		const updated = await Ticket.findOneAndUpdate(
+			{_id: ticket._id, status: from},
+			{$set: update, $push: {events: {$each: events}}},
+			{returnDocument: 'after'})
+		if(!updated){
+			return res.status(409).send({error: 'Someone else just changed this ticket. Reload to see its current status.'})
+		}
+		return res.send({ticket: updated, message: `Status changed from ${from} to ${to}`})
 	}catch(err){
 		console.log(err)
-                res.status(500).json({error: 'failed to update tickets'})
+		res.status(500).json({error: 'failed to update tickets'})
+	}
+})
+
+// One ticket with its timeline, for whoever filed it and the team that handles it.
+// role is how this user relates to the ticket; nextStatuses lists the moves they can make now.
+router.get('/:ticketId', async(req, res) =>{
+	try{
+		const ticket = await Ticket.findById(req.params.ticketId)
+			.populate('userPosted', 'name email')
+			.populate('assignedTo', 'name email')
+			.populate('events.actor', 'name')
+		if(!ticket){
+			return res.status(404).send({error: 'Ticket not found'})
+		}
+		const owner = isTicketOwner(req.accountId, ticket)
+		const solver = await isTicketSolver(req.team, ticket)
+		if(!owner && !solver){
+			return res.status(403).send({error: "You don't have access to this ticket"})
+		}
+		const data = ticket.toObject()
+		// Tickets filed before the timeline existed still show when they were filed
+		if(!data.events.some(e => e.type === 'created')){
+			data.events.unshift({_id: `${data._id}-created`, type: 'created', actor: data.userPosted, createdAt: data.createdAt})
+		}
+		return res.send({
+			ticket: data,
+			role: owner ? 'reporter' : 'solver',
+			nextStatuses: solver ? NEXT_STATUSES[data.status] || [] : [],
+		})
+	}catch(err){
+		console.log(err)
+		res.status(500).json({error: 'Failed to fetch ticket'})
+	}
+})
+
+// Comments (from the reporter) and notes (from the ticket's team) go on the timeline.
+// Both sides can read them, and nobody can edit them afterwards.
+router.post('/:ticketId/comments', async(req, res) =>{
+	try{
+		const text = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
+		if(!text){
+			return res.status(400).send({error: 'Write a comment before posting'})
+		}
+		if(text.length > 1000){
+			return res.status(400).send({error: 'Comments must be 1000 characters or fewer'})
+		}
+		const ticket = await Ticket.findById(req.params.ticketId)
+		if(!ticket){
+			return res.status(404).send({error: 'Ticket not found'})
+		}
+		let type = null
+		if(isTicketOwner(req.accountId, ticket)) type = 'comment'
+		else if(await isTicketSolver(req.team, ticket)) type = 'note'
+		if(!type){
+			return res.status(403).send({error: 'Only the reporter and the team handling this ticket can comment on it'})
+		}
+		await Ticket.updateOne({_id: ticket._id}, {$push: {events: {type, actor: req.accountId, comment: text}}})
+		return res.status(201).send({type})
+	}catch(err){
+		console.log(err)
+		res.status(500).json({error: 'failed to add comment'})
 	}
 })
 
