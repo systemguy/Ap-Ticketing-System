@@ -1,0 +1,68 @@
+/* Functional baseline only; visual polish comes in the next pass.
+   All colors live in these variables so restyling is one edit. */
+.pf-page {
+  --pf-text: #1f2933;
+  --pf-muted: #616e7c;
+  --pf-border: #d3d9e0;
+  --pf-surface: #ffffff;
+  --pf-accent: #2f5d8a;
+  --pf-danger: #b42318;
+  --pf-success: #1e6b34;
+
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+  color: var(--pf-text);
+}
+
+.pf-header { display: flex; gap: 1.25rem; align-items: center; margin-bottom: 1.5rem; }
+.pf-avatar { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.pf-name { margin: 0 0 0.25rem; font-size: 1.6rem; }
+.pf-detail { margin: 0.15rem 0; color: var(--pf-muted); }
+.pf-detail code { font-size: 0.85em; }
+
+.pf-bio { border: 1px solid var(--pf-border); border-radius: 6px; padding: 1rem; margin-bottom: 2rem; background: var(--pf-surface); }
+.pf-bio-head { display: flex; justify-content: space-between; align-items: center; }
+.pf-bio-head h2 { margin: 0; font-size: 1.1rem; }
+.pf-bio-text { white-space: pre-wrap; margin: 0.75rem 0 0; max-width: 70ch; }
+.pf-bio-input { width: 100%; box-sizing: border-box; margin-top: 0.75rem; padding: 0.5rem; font: inherit; border: 1px solid var(--pf-border); border-radius: 4px; resize: vertical; }
+.pf-bio-actions { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; margin-top: 0.5rem; }
+.pf-char-count { margin-right: auto; color: var(--pf-muted); font-size: 0.85rem; }
+
+.pf-btn { font: inherit; padding: 0.4rem 0.9rem; border: 1px solid var(--pf-border); border-radius: 4px; background: var(--pf-surface); cursor: pointer; }
+.pf-btn-primary { background: var(--pf-accent); border-color: var(--pf-accent); color: #fff; }
+.pf-btn:disabled { opacity: 0.6; cursor: default; }
+.pf-btn:focus-visible, .pf-incident:focus-visible, .pf-back:focus-visible { outline: 2px solid var(--pf-accent); outline-offset: 2px; }
+
+.pf-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+@media (max-width: 800px) { .pf-columns { grid-template-columns: 1fr; } }
+.pf-column-title { font-size: 1.05rem; margin: 0 0 0.5rem; }
+.pf-count { color: var(--pf-muted); font-weight: normal; }
+.pf-incident-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.pf-incident { display: block; padding: 0.75rem; border: 1px solid var(--pf-border); border-radius: 6px; text-decoration: none; color: inherit; background: var(--pf-surface); }
+.pf-incident:hover { border-color: var(--pf-accent); }
+.pf-incident-title { display: block; font-weight: 600; margin-bottom: 0.3rem; }
+.pf-incident-meta { display: flex; flex-wrap: wrap; gap: 0.6rem; font-size: 0.85rem; color: var(--pf-muted); margin: 0; }
+.pf-status { font-weight: 600; color: var(--pf-text); }
+
+.pf-empty { color: var(--pf-muted); }
+.pf-error { color: var(--pf-danger); }
+
+.pf-back { display: inline-block; margin-bottom: 1rem; color: var(--pf-accent); }
+.pf-timeline-header { margin-bottom: 1.5rem; }
+.pf-timeline { list-style: none; margin: 0; padding: 0 0 0 1.25rem; border-left: 2px solid var(--pf-border); }
+.pf-event { position: relative; padding: 0 0 1.25rem 0.75rem; }
+.pf-event::before { content: ''; position: absolute; left: -1.25rem; top: 0.35rem; width: 10px; height: 10px; margin-left: -6px; border-radius: 50%; background: var(--pf-accent); }
+.pf-event-text { margin: 0; }
+.pf-event-comment { margin: 0.4rem 0; padding: 0.5rem 0.75rem; border-left: 3px solid var(--pf-border); white-space: pre-wrap; max-width: 70ch; }
+.pf-event-time { font-size: 0.8rem; color: var(--pf-muted); }
+
+/* Ticket page: status buttons, result messages, comments and notes */
+.pf-description { white-space: pre-wrap; max-width: 70ch; margin: 0.75rem 0 0; }
+.pf-status-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1.5rem; }
+.pf-flash { margin: 0 0 1rem; padding: 0.6rem 0.9rem; border: 1px solid; border-radius: 4px; }
+.pf-flash-ok { color: var(--pf-success); border-color: currentColor; background: var(--pf-surface); }
+.pf-flash-error { color: var(--pf-danger); border-color: currentColor; background: var(--pf-surface); }
+.pf-event-note .pf-event-comment { border-left-color: var(--pf-accent); }
+.pf-comment-form { margin-top: 2rem; }
+.pf-comment-label { display: block; font-weight: 600; }

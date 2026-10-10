@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-// change this if your backend runs somewhere else
-const API_URL = 'http://159.65.229.254:3000';
+import { API_BASE } from '../api/client';
 
 function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -40,7 +39,7 @@ function Auth() {
 
     try{
 
-      const url = isLogin ? `${API_URL}/login` : `${API_URL}/register`;
+      const url = isLogin ? `${API_BASE}/login` : `${API_BASE}/register`;
       const body = isLogin ? { email, password } : { name, email, password };
       const res = await fetch(url, {
       method: 'POST',
@@ -52,14 +51,8 @@ function Auth() {
       console.log(data)
       if(!res.ok){
         console.log(data)
-        if (Array.isArray(data.error)) {
-          setMessage(data.error.join(', '));
-        }
-        else if (typeof data.error === 'string') {
-          setMessage(data.error);
-        }else{
-          setMessage(data.message || 'Invalid username or password')
-        }
+        // data.error is a list for password rules, a string otherwise
+        setMessage(data.error || data.message || 'Invalid username or password')
         return;
       }
       if (data.token) {
@@ -109,6 +102,11 @@ function Auth() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
+            {!isLogin && (
+              <p className="field-hint">
+                At least 10 characters, with an uppercase letter, a lowercase letter, a number and a symbol.
+              </p>
+            )}
           </div>
 
           <button type="submit" className="btn">
@@ -116,7 +114,13 @@ function Auth() {
           </button>
         </form>
 
-        {message && <p>{message}</p>}
+        {Array.isArray(message) ? (
+          <ul className="form-errors">
+            {message.map((m) => <li key={m}>{m}</li>)}
+          </ul>
+        ) : (
+          message && <p>{message}</p>
+        )}
       </div>
     </div>
   );
