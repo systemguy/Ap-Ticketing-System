@@ -11,7 +11,15 @@ const UserScheme = new mongoose.Schema({
 		type: String,
 		required: true,
 		unique: true,
-		lowercase: true
+		lowercase: true,
+		trim: true
+	},
+	// Optional and not unique: users can sign up without one and add it on the profile page
+	bio: {
+		type: String,
+		required: false,
+		trim: true,
+		maxlength: [500, 'Bio must be 500 characters or fewer'],
 	},
 	password: {
 		type: String,
@@ -28,6 +36,11 @@ const UserScheme = new mongoose.Schema({
 		required: false,
 		select: true,
 	},
+	photo: {
+		type: String,
+		required: false,
+		select: true,
+	},
 	team: {
 		type: String,
 		ref: 'Team',
@@ -39,15 +52,18 @@ const UserScheme = new mongoose.Schema({
 })
 
 
-UserScheme.pre('save', async function(next){
+UserScheme.pre('save', async function(){
 	if(this.role == undefined){
 		this.role =  "user"
 	}
 	if(this.team == undefined){
 		this.team = "user"
 	}
-	const hash = await bcrypt.hash(this.password,10)
-	this.password = hash
+	// Only hash a new or changed password. Without this check, saving a user for any
+	// other reason (e.g. updating the bio) would hash the hash and lock them out.
+	if(this.isModified('password')){
+		this.password = await bcrypt.hash(this.password,10)
+	}
 })
 
 const user = mongoose.model('User', UserScheme)
