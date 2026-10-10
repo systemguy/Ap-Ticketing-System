@@ -13,6 +13,7 @@ const fs = require('fs')
 const crypto = require('crypto')
 
 const Post = require('../models/post')
+const { publicUser } = require('../helpers/users')
 
 // Long passphrases must still include upper/lowercase, a number and a symbol (Sprint 1 rule)
 owasp.config({ allowPassphrases: false })
@@ -49,12 +50,6 @@ function avatarUpload(req, res, next) {
 // Deletes a saved upload when registration fails, so rejected signups leave no files behind
 function discardUpload(req) {
   if (req.file) fs.promises.unlink(req.file.path).catch(() => {})
-}
-
-// Never send the password hash (or Mongo's __v) back to the client
-function publicUser(user) {
-  const { password, __v, ...rest } = user.toObject()
-  return rest
 }
 
 function generateToken(params = {}) {
