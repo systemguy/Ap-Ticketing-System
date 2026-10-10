@@ -15,11 +15,7 @@ const TeamScheme = new mongoose.Schema({
 		select: true,
 		required:true
 	},
-	services:{
-		type: [String],
-		select: true,
-		required: false
-	}
+	
 })
 
 const team = mongoose.model('Team', TeamScheme)

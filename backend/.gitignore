@@ -3,3 +3,4 @@ node_modules
 credentials.txt
 template_mongo_con.txt
 .DS_Store
+uploads/
