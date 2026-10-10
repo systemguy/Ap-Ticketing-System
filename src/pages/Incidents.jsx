@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { departmentServices, departments } from '../data/services';
 import { SEVERITIES, severityOf } from '../data/severity';
 import { API_BASE, errorText } from '../api/client';
@@ -129,11 +130,11 @@ function Incidents() {
       const res = await fetch(`${API_BASE}/tickets/delete/${target._id}`, {
         method: 'PUT',
         headers: authHeaders(),
-        body: JSON.stringify({ resolved: true }),
       });
 
       if (!res.ok) {
-        alert('Could not delete the ticket. Please try again.');
+        const data = await res.json().catch(() => ({}));
+        alert(errorText(data, 'Could not delete the ticket. Please try again.'));
         return;
       }
 
@@ -355,7 +356,8 @@ function Incidents() {
                 <tr key={incident._id}>
                   <td>{incident._id ? incident._id.slice(-6).toUpperCase() : incident.id}</td>
                   <td>
-                    <div>{incident.title}</div>
+                    {/* Opens the ticket's timeline, where its team changes the status */}
+                    <div><Link to={`/incidents/${incident._id}/timeline`}>{incident.title}</Link></div>
                     {showDescription && (
                       <div className="ticket-description" title={incident.description}>
                         {incident.description}

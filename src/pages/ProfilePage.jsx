@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getMe, getMyIncidents, updateBio } from '../api/profile';
 import { clearToken } from '../api/client';
 import { splitIncidents, formatDate, formatStatus } from '../utils/incidents';
+import { severityOf } from '../data/severity';
 import './Profile.css';
 
 const BIO_MAX = 500;
@@ -25,7 +26,7 @@ function IncidentColumn({ title, incidents, emptyText }) {
                   <span className={`pf-status pf-status-${String(i.status).toLowerCase()}`}>
                     {formatStatus(i.status)}
                   </span>
-                  {i.severity && <span>Severity: {formatStatus(i.severity)}</span>}
+                  {severityOf(i.severity) && <span>Severity: {severityOf(i.severity).label}</span>}
                   <span>{formatDate(i.createdAt)}</span>
                 </span>
               </Link>
@@ -111,8 +112,9 @@ export default function ProfilePage() {
       <header className="pf-header">
         <img src="/default-avatar.svg" alt="Profile picture" className="pf-avatar" />
         <div className="pf-identity">
-          <h1 className="pf-name">{user.username}</h1>
+          <h1 className="pf-name">{user.name}</h1>
           <p className="pf-detail">{user.email}</p>
+          <p className="pf-detail">{user.teamName ? `Solver, ${user.teamName} team` : 'Reporter'}</p>
           <p className="pf-detail">User ID: <code>{user._id}</code></p>
         </div>
       </header>

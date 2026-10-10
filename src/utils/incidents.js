@@ -1,12 +1,12 @@
 // Statuses that count as "closed/resolved". Match these to your schema.
 export const CLOSED_STATUSES = ['resolved', 'closed'];
 
-// Handles both raw ObjectId strings and populated objects ({ _id, username }).
+// Handles both raw ObjectId strings and populated objects ({ _id, name }).
 export const idOf = (v) => (v && typeof v === 'object' ? v._id : v);
 
 export const nameOf = (v) => {
   if (!v) return null;
-  if (typeof v === 'object') return v.username || v.email || 'Unknown user';
+  if (typeof v === 'object') return v.name || v.email || 'Unknown user';
   return v;
 };
 
@@ -20,7 +20,7 @@ const newestBy = (getDate) => (a, b) => time(getDate(b)) - time(getDate(a));
 
 export function splitIncidents(incidents, userId) {
   const uid = String(userId);
-  const filedByMe = (i) => String(idOf(i.reportedBy)) === uid;
+  const filedByMe = (i) => String(idOf(i.userPosted)) === uid;
   const assignedToMe = (i) => String(idOf(i.assignedTo)) === uid;
   const involvesMe = (i) => filedByMe(i) || assignedToMe(i);
 
