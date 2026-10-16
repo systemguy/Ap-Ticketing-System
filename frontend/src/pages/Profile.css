@@ -1,68 +1,195 @@
-/* Functional baseline only; visual polish comes in the next pass.
-   All colors live in these variables so restyling is one edit. */
+/* Profile and ticket timeline pages. Colors come from the tokens in index.css,
+   so these pages match the rest of the site. */
 .pf-page {
-  --pf-text: #1f2933;
-  --pf-muted: #616e7c;
-  --pf-border: #d3d9e0;
-  --pf-surface: #ffffff;
-  --pf-accent: #2f5d8a;
-  --pf-danger: #b42318;
-  --pf-success: #1e6b34;
-
   max-width: 1100px;
   margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
-  color: var(--pf-text);
+  padding: 56px 24px 100px;
+  color: var(--text);
 }
 
-.pf-header { display: flex; gap: 1.25rem; align-items: center; margin-bottom: 1.5rem; }
-.pf-avatar { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
-.pf-name { margin: 0 0 0.25rem; font-size: 1.6rem; }
-.pf-detail { margin: 0.15rem 0; color: var(--pf-muted); }
-.pf-detail code { font-size: 0.85em; }
+@media (max-width: 600px) { .pf-page { padding: 32px 16px 72px; } }
 
-.pf-bio { border: 1px solid var(--pf-border); border-radius: 6px; padding: 1rem; margin-bottom: 2rem; background: var(--pf-surface); }
+/* ---- Profile header ---- */
+
+.pf-header {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-bottom: 32px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pf-avatar {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 0 0 6px var(--surface), 0 0 0 7px var(--line);
+}
+
+.pf-identity { flex: 1; min-width: 220px; }
+.pf-name { margin: 0 0 4px; font-size: 40px; line-height: 1.1; }
+.pf-detail { margin: 2px 0; color: var(--muted); }
+.pf-header-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.pf-header-actions .btn { margin-right: 0; }
+
+/* ---- Bio ---- */
+
+.pf-bio {
+  border: 1px solid var(--line);
+  padding: 24px 28px;
+  margin-bottom: 40px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
 .pf-bio-head { display: flex; justify-content: space-between; align-items: center; }
-.pf-bio-head h2 { margin: 0; font-size: 1.1rem; }
-.pf-bio-text { white-space: pre-wrap; margin: 0.75rem 0 0; max-width: 70ch; }
-.pf-bio-input { width: 100%; box-sizing: border-box; margin-top: 0.75rem; padding: 0.5rem; font: inherit; border: 1px solid var(--pf-border); border-radius: 4px; resize: vertical; }
-.pf-bio-actions { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; margin-top: 0.5rem; }
-.pf-char-count { margin-right: auto; color: var(--pf-muted); font-size: 0.85rem; }
+.pf-bio-head h2 { margin: 0; font-size: 24px; }
+.pf-bio-text { white-space: pre-wrap; margin: 12px 0 0; max-width: 70ch; }
 
-.pf-btn { font: inherit; padding: 0.4rem 0.9rem; border: 1px solid var(--pf-border); border-radius: 4px; background: var(--pf-surface); cursor: pointer; }
-.pf-btn-primary { background: var(--pf-accent); border-color: var(--pf-accent); color: #fff; }
-.pf-btn:disabled { opacity: 0.6; cursor: default; }
-.pf-btn:focus-visible, .pf-incident:focus-visible, .pf-back:focus-visible { outline: 2px solid var(--pf-accent); outline-offset: 2px; }
+.pf-bio-input {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  resize: vertical;
+}
 
-.pf-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.pf-bio-input:focus { outline: none; border-color: var(--accent); }
+
+.pf-bio-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+.pf-bio-actions .btn { margin-right: 0; }
+.pf-char-count { margin-right: auto; color: var(--muted); font-size: 13px; }
+
+/* ---- Incident columns ---- */
+
+.pf-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
 @media (max-width: 800px) { .pf-columns { grid-template-columns: 1fr; } }
-.pf-column-title { font-size: 1.05rem; margin: 0 0 0.5rem; }
-.pf-count { color: var(--pf-muted); font-weight: normal; }
-.pf-incident-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-.pf-incident { display: block; padding: 0.75rem; border: 1px solid var(--pf-border); border-radius: 6px; text-decoration: none; color: inherit; background: var(--pf-surface); }
-.pf-incident:hover { border-color: var(--pf-accent); }
-.pf-incident-title { display: block; font-weight: 600; margin-bottom: 0.3rem; }
-.pf-incident-meta { display: flex; flex-wrap: wrap; gap: 0.6rem; font-size: 0.85rem; color: var(--pf-muted); margin: 0; }
-.pf-status { font-weight: 600; color: var(--pf-text); }
 
-.pf-empty { color: var(--pf-muted); }
-.pf-error { color: var(--pf-danger); }
+.pf-column-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--ink); margin-bottom: 16px; }
+.pf-column-title { font-size: 26px; margin: 0 0 8px; }
 
-.pf-back { display: inline-block; margin-bottom: 1rem; color: var(--pf-accent); }
-.pf-timeline-header { margin-bottom: 1.5rem; }
-.pf-timeline { list-style: none; margin: 0; padding: 0 0 0 1.25rem; border-left: 2px solid var(--pf-border); }
-.pf-event { position: relative; padding: 0 0 1.25rem 0.75rem; }
-.pf-event::before { content: ''; position: absolute; left: -1.25rem; top: 0.35rem; width: 10px; height: 10px; margin-left: -6px; border-radius: 50%; background: var(--pf-accent); }
-.pf-event-text { margin: 0; }
-.pf-event-comment { margin: 0.4rem 0; padding: 0.5rem 0.75rem; border-left: 3px solid var(--pf-border); white-space: pre-wrap; max-width: 70ch; }
-.pf-event-time { font-size: 0.8rem; color: var(--pf-muted); }
+.pf-count {
+  display: inline-block;
+  min-width: 24px;
+  padding: 0 6px;
+  margin-left: 6px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  text-align: center;
+  vertical-align: middle;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
 
-/* Ticket page: status buttons, result messages, comments and notes */
-.pf-description { white-space: pre-wrap; max-width: 70ch; margin: 0.75rem 0 0; }
-.pf-status-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1.5rem; }
-.pf-flash { margin: 0 0 1rem; padding: 0.6rem 0.9rem; border: 1px solid; border-radius: 4px; }
-.pf-flash-ok { color: var(--pf-success); border-color: currentColor; background: var(--pf-surface); }
-.pf-flash-error { color: var(--pf-danger); border-color: currentColor; background: var(--pf-surface); }
-.pf-event-note .pf-event-comment { border-left-color: var(--pf-accent); }
-.pf-comment-form { margin-top: 2rem; }
-.pf-comment-label { display: block; font-weight: 600; }
+.pf-incident-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.pf-incident {
+  display: block;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  text-decoration: none;
+  color: inherit;
+  background: var(--surface);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.pf-incident:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); color: inherit; }
+
+.pf-incident-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.pf-incident-title { font-weight: 500; font-size: 16px; color: var(--ink); }
+
+.pf-incident-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13px; color: var(--muted); margin: 0; }
+.pf-incident-meta .severity { padding: 2px 8px; font-size: 10px; }
+
+.pf-empty { color: var(--muted); font-style: italic; }
+.pf-error { color: var(--danger); }
+
+/* ---- Ticket timeline ---- */
+
+.pf-back {
+  display: inline-block;
+  margin-bottom: 24px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-soft);
+  text-decoration: none;
+}
+
+.pf-back:hover { color: var(--accent); }
+
+.pf-timeline-header { margin-bottom: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
+.pf-title-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+
+.pf-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px 24px;
+  margin: 24px 0 0;
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.pf-facts dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 4px; }
+.pf-facts dd { margin: 0; color: var(--ink); }
+
+.pf-description { white-space: pre-wrap; max-width: 70ch; margin: 20px 0 0; }
+
+.pf-photo { margin: 20px 0 0; }
+.pf-photo img { display: block; max-width: min(100%, 480px); max-height: 360px; object-fit: contain; border: 1px solid var(--line); background: var(--surface); }
+.pf-photo figcaption { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.pf-status-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 32px; }
+.pf-status-actions .btn { margin-right: 0; }
+
+.pf-info { margin: 0 0 28px; padding: 12px 16px; background: var(--surface-soft); border-left: 3px solid var(--line-strong); font-size: 14px; }
+
+.pf-section-title { font-size: 28px; margin: 0 0 20px; }
+
+.pf-timeline { list-style: none; margin: 0; padding: 0 0 0 24px; border-left: 1px solid var(--line-strong); }
+.pf-event { position: relative; padding: 0 0 24px 8px; }
+
+.pf-event::before {
+  content: '';
+  position: absolute;
+  left: -30px;
+  top: 6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--accent);
+}
+
+.pf-event-status_change::before { background: var(--accent); }
+.pf-event-created::before { background: var(--ink); border-color: var(--ink); }
+
+.pf-event-text { margin: 0; color: var(--ink); }
+
+.pf-event-comment {
+  margin: 8px 0;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-left: 3px solid var(--line-strong);
+  white-space: pre-wrap;
+  max-width: 70ch;
+  color: var(--text-soft);
+}
+
+.pf-event-note .pf-event-comment { border-left-color: var(--accent); }
+.pf-event-time { font-size: 12px; color: var(--muted); letter-spacing: 0.03em; }
+
+.pf-comment-form { margin-top: 32px; padding: 24px 28px; background: var(--surface); border: 1px solid var(--line); }
+.pf-comment-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }

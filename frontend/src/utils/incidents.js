@@ -18,25 +18,29 @@ const time = (d) => (d ? new Date(d).getTime() : 0);
 // Newest first. Flip the subtraction for oldest first.
 const newestBy = (getDate) => (a, b) => time(getDate(b)) - time(getDate(a));
 
+// When a closed/resolved ticket was finished. The Closed column sorts AND displays
+// by this date, so the dates on screen always read in order.
+// Uses the date for the CURRENT status, so a reopened-then-resolved ticket
+// doesn't show the date it was closed the first time.
+export function finishedAt(i) {
+  const status = String(i.status || '').toLowerCase();
+  if (status === 'closed') return i.closedAt || i.resolvedAt || i.updatedAt || i.createdAt;
+  return i.resolvedAt || i.closedAt || i.updatedAt || i.createdAt;
+}
+
+export const isFiledBy = (i, userId) => Boolean(userId) && String(idOf(i.userPosted)) === String(userId);
+export const isAssignedTo = (i, userId) => Boolean(userId) && String(idOf(i.assignedTo)) === String(userId);
+
+// Every incident lands in exactly one column, so nothing is listed twice.
+// Each card is tagged "Filed by you" / "Assigned to you" instead of a third column.
 export function splitIncidents(incidents, userId) {
-  const uid = String(userId);
-  const filedByMe = (i) => String(idOf(i.userPosted)) === uid;
-  const assignedToMe = (i) => String(idOf(i.assignedTo)) === uid;
-  const involvesMe = (i) => filedByMe(i) || assignedToMe(i);
+  const involvesMe = (i) => isFiledBy(i, userId) || isAssignedTo(i, userId);
+  const mine = incidents.filter(involvesMe);
 
-  const active = incidents
-    .filter((i) => !isClosed(i) && involvesMe(i))
-    .sort(newestBy((i) => i.createdAt));
+  const active = mine.filter((i) => !isClosed(i)).sort(newestBy((i) => i.createdAt));
+  const closed = mine.filter(isClosed).sort(newestBy(finishedAt));
 
-  const closed = incidents
-    .filter((i) => isClosed(i) && involvesMe(i))
-    .sort(newestBy((i) => i.resolvedAt || i.closedAt || i.updatedAt || i.createdAt));
-
-  const filed = incidents
-    .filter(filedByMe)
-    .sort(newestBy((i) => i.createdAt));
-
-  return { active, closed, filed };
+  return { active, closed };
 }
 
 export function formatDate(d) {

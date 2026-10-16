@@ -1,37 +1,56 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getMe, getMyIncidents, updateBio } from '../api/profile';
-import { clearToken } from '../api/client';
-import { splitIncidents, formatDate, formatStatus } from '../utils/incidents';
+import { photoUrl, useSession } from '../context/SessionContext';
+import {
+  finishedAt, formatDate, formatStatus, isAssignedTo, isFiledBy, splitIncidents,
+} from '../utils/incidents';
 import { severityOf } from '../data/severity';
 import './Profile.css';
 
 const BIO_MAX = 500;
 
-function IncidentColumn({ title, incidents, emptyText }) {
+// dateLabel / dateOf decide what date each card shows. The Closed column shows
+// the date it was finished, which is also what it's sorted by.
+function IncidentColumn({ id, title, incidents, emptyText, userId, dateLabel, dateOf, action }) {
   return (
-    <section className="pf-column" aria-labelledby={`col-${title}`}>
-      <h2 id={`col-${title}`} className="pf-column-title">
-        {title} <span className="pf-count">({incidents.length})</span>
-      </h2>
+    <section className="pf-column" aria-labelledby={id}>
+      <div className="pf-column-head">
+        <h2 id={id} className="pf-column-title">
+          {title} <span className="pf-count">{incidents.length}</span>
+        </h2>
+        {action}
+      </div>
       {incidents.length === 0 ? (
         <p className="pf-empty">{emptyText}</p>
       ) : (
         <ul className="pf-incident-list">
-          {incidents.map((i) => (
-            <li key={i._id}>
-              <Link to={`/incidents/${i._id}/timeline`} className="pf-incident">
-                <span className="pf-incident-title">{i.title || 'Untitled incident'}</span>
-                <span className="pf-incident-meta">
-                  <span className={`pf-status pf-status-${String(i.status).toLowerCase()}`}>
-                    {formatStatus(i.status)}
+          {incidents.map((i) => {
+            const sev = severityOf(i.severity);
+            const filed = isFiledBy(i, userId);
+            const assigned = isAssignedTo(i, userId);
+            return (
+              <li key={i._id}>
+                <Link to={`/incidents/${i._id}/timeline`} className="pf-incident">
+                  <span className="pf-incident-top">
+                    <span className="pf-incident-title">{i.title || 'Untitled incident'}</span>
+                    <span className={`status status-${String(i.status).toLowerCase()}`}>
+                      {formatStatus(i.status)}
+                    </span>
                   </span>
-                  {severityOf(i.severity) && <span>Severity: {severityOf(i.severity).label}</span>}
-                  <span>{formatDate(i.createdAt)}</span>
-                </span>
-              </Link>
-            </li>
-          ))}
+                  <span className="pf-incident-meta">
+                    {sev && <span className={`severity severity-${sev.value}`}>{sev.label}</span>}
+                    <span>{i.service}</span>
+                    <span>{dateLabel} {formatDate(dateOf(i))}</span>
+                  </span>
+                  <span className="tag-row">
+                    {filed && <span className="tag">Filed by you</span>}
+                    {assigned && <span className="tag tag-team">Assigned to you</span>}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -40,6 +59,7 @@ function IncidentColumn({ title, incidents, emptyText }) {
 
 export default function ProfilePage() {
   const navigate = useNavigate();
+  const { logout, setUser: setSessionUser, canSeeQueue } = useSession();
   const [user, setUser] = useState(null);
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +72,7 @@ export default function ProfilePage() {
 
   const handleAuthError = (err) => {
     if (err.status === 401) {
-      clearToken();
+      logout();
       navigate('/login', { replace: true });
       return true;
     }
@@ -79,7 +99,7 @@ export default function ProfilePage() {
   }, []);
 
   const columns = useMemo(
-    () => (user ? splitIncidents(incidents, user._id) : { active: [], closed: [], filed: [] }),
+    () => (user ? splitIncidents(incidents, user._id) : { active: [], closed: [] }),
     [incidents, user]
   );
 
@@ -95,7 +115,9 @@ export default function ProfilePage() {
     try {
       const updated = await updateBio(bioDraft.trim());
       // Accept either the updated user object or { bio } back from the API.
-      setUser((u) => ({ ...u, bio: updated?.bio ?? bioDraft.trim() }));
+      const bio = updated?.bio ?? bioDraft.trim();
+      setUser((u) => ({ ...u, bio }));
+      setSessionUser((u) => (u ? { ...u, bio } : u));
       setEditing(false);
     } catch (err) {
       if (!handleAuthError(err)) setBioError(`Bio not saved: ${err.message}`);
@@ -104,18 +126,29 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) return <main className="pf-page"><p>Loading profile…</p></main>;
+  if (loading) return <main className="pf-page"><p className="muted">Loading profile…</p></main>;
   if (error) return <main className="pf-page"><p className="pf-error">Couldn't load your profile: {error}</p></main>;
 
   return (
     <main className="pf-page">
       <header className="pf-header">
-        <img src="/default-avatar.svg" alt="Profile picture" className="pf-avatar" />
+        <img
+          src={photoUrl(user.photo)}
+          alt={`${user.name}'s profile picture`}
+          className="pf-avatar"
+          onError={(e) => {
+            e.currentTarget.onerror = null;
+            e.currentTarget.src = '/default-avatar.svg';
+          }}
+        />
         <div className="pf-identity">
+          <p className="eyebrow">{user.teamName ? `${user.teamName} team` : 'Resident'}</p>
           <h1 className="pf-name">{user.name}</h1>
           <p className="pf-detail">{user.email}</p>
-          <p className="pf-detail">{user.teamName ? `Solver, ${user.teamName} team` : 'Reporter'}</p>
-          <p className="pf-detail">User ID: <code>{user._id}</code></p>
+        </div>
+        <div className="pf-header-actions">
+          <Link to="/tickets/new" className="btn">Report an Issue</Link>
+          {canSeeQueue && <Link to="/incidents" className="btn btn-outline">Team Queue</Link>}
         </div>
       </header>
 
@@ -123,7 +156,7 @@ export default function ProfilePage() {
         <div className="pf-bio-head">
           <h2 id="bio-heading">Bio</h2>
           {!editing && (
-            <button type="button" className="pf-btn" onClick={startEdit}>
+            <button type="button" className="btn btn-outline btn-small" onClick={startEdit}>
               Edit bio
             </button>
           )}
@@ -142,10 +175,10 @@ export default function ProfilePage() {
             />
             <div className="pf-bio-actions">
               <span className="pf-char-count">{bioDraft.length}/{BIO_MAX}</span>
-              <button type="button" className="pf-btn" onClick={() => setEditing(false)} disabled={saving}>
+              <button type="button" className="btn btn-outline btn-small" onClick={() => setEditing(false)} disabled={saving}>
                 Cancel
               </button>
-              <button type="button" className="pf-btn pf-btn-primary" onClick={saveBio} disabled={saving}>
+              <button type="button" className="btn btn-small" onClick={saveBio} disabled={saving}>
                 {saving ? 'Saving…' : 'Save bio'}
               </button>
             </div>
@@ -158,19 +191,22 @@ export default function ProfilePage() {
 
       <div className="pf-columns">
         <IncidentColumn
-          title="Active"
+          id="col-active"
+          title="Active incidents"
           incidents={columns.active}
-          emptyText="No open incidents filed by or assigned to you."
+          userId={user._id}
+          dateLabel="Filed"
+          dateOf={(i) => i.createdAt}
+          emptyText="Nothing open right now. Anything you report will show up here."
         />
         <IncidentColumn
-          title="Closed / resolved"
+          id="col-closed"
+          title="Resolved & closed"
           incidents={columns.closed}
-          emptyText="No closed or resolved incidents yet."
-        />
-        <IncidentColumn
-          title="Filed by me"
-          incidents={columns.filed}
-          emptyText="You haven't filed any incidents."
+          userId={user._id}
+          dateLabel="Finished"
+          dateOf={finishedAt}
+          emptyText="No resolved or closed incidents yet."
         />
       </div>
     </main>
