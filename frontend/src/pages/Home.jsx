@@ -1,32 +1,56 @@
 import { Link } from 'react-router-dom';
+import { useSession } from '../context/SessionContext';
 
 function Home() {
-  const isLoggedIn = localStorage.getItem('loggedIn') === 'true';
+  const { loggedIn, canSeeQueue, user } = useSession();
 
   return (
-    <div className="page">
-      <h1>Residence Ticketing</h1>
-      <p>
-        A quiet, orderly way for residents and staff to report and track
-        maintenance matters across the property.
-      </p>
+    <main className="page">
+      <section className="hero">
+        <p className="eyebrow">Resident services</p>
+        <h1>{loggedIn && user?.name ? `Welcome back, ${user.name.split(' ')[0]}` : 'Residence Ticketing'}</h1>
+        <p className="lede">
+          A quiet, orderly way for residents and staff to report and track
+          maintenance matters across the property.
+        </p>
 
-      <div>
-        {!isLoggedIn && (
-          <Link to="/login" className="btn">Login / Register</Link>
-        )}
-        <Link to="/incidents" className="btn btn-outline">View Active Incidents</Link>
-      </div>
+        <div className="hero-actions">
+          {loggedIn ? (
+            <>
+              <Link to="/tickets/new" className="btn">Create a Ticket</Link>
+              <Link to="/profile" className="btn btn-outline">View My Incidents</Link>
+              {canSeeQueue && <Link to="/incidents" className="text-link">Open the team queue →</Link>}
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="btn">Login / Register</Link>
+              <Link to="/services" className="btn btn-outline">See Our Services</Link>
+            </>
+          )}
+        </div>
+      </section>
 
-      <div className="card" style={{ marginTop: '40px' }}>
-        <h3>How it works</h3>
-        <ul>
-          <li>Residents report an issue, such as a leak or a broken fixture.</li>
-          <li>The issue is logged as a ticket with a clear status.</li>
-          <li>Staff update the ticket until the matter is resolved.</li>
-        </ul>
-      </div>
-    </div>
+      <section className="steps" aria-labelledby="how-it-works">
+        <h2 id="how-it-works">How it works</h2>
+        <ol className="step-list">
+          <li>
+            <span className="step-num">01</span>
+            <h3>Report</h3>
+            <p>Describe the issue, such as a leak or a broken fixture, and add a photo if it helps.</p>
+          </li>
+          <li>
+            <span className="step-num">02</span>
+            <h3>Track</h3>
+            <p>Your ticket is routed to the right team, and every update appears on its timeline.</p>
+          </li>
+          <li>
+            <span className="step-num">03</span>
+            <h3>Resolve</h3>
+            <p>Staff work the ticket until the matter is resolved, and it moves to your closed list.</p>
+          </li>
+        </ol>
+      </section>
+    </main>
   );
 }
 

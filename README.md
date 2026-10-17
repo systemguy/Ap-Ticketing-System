@@ -41,3 +41,25 @@ Work happens on these branches (or short-lived branches cut from them for indivi
 Droplet deployment and server administration are managed exclusively by Dayan K. to avoid environment drift between team members’ changes. 
 
 Each user can only see and edit or delete their own tickets, but cannot see/edit or delete anyone else’s unless they are part of the team associated with resolving that ticket
+
+## Sprint 3 – Frontend update (`frontend` branch)
+
+The `frontend` branch was brought up to date with `main` (it was still at Sprint 1) and
+then updated with the Sprint 2 feedback fixes and the frontend items the group agreed on.
+Full details, file by file, are in [`frontend/README.md`](frontend/README.md#sprint-3-frontend-update-for-the-group).
+
+**Sprint 2 feedback addressed**
+- Resolve, Close and Reopen now ask for confirmation; Reopen also requires a reason, which is saved on the timeline.
+- Edit/Delete only show on tickets you filed, and Update status only on your team's tickets, so no one sees buttons they can't use.
+- Incidents appear once on the profile (Active or Resolved & closed), and the closed column shows the date it's sorted by.
+- Fixed closed tickets still showing in the active incidents list.
+
+**Group items added**
+- Home page: *Create a Ticket* and *View My Incidents* buttons.
+- Residents no longer see the Active Incidents page (now *Team Queue*, staff only); they file tickets from a new *Report an Issue* page and track them on their profile.
+- Profile picture button in the navbar; optional profile picture at registration.
+- Optional photo on new tickets, shown on the ticket timeline.
+- Dropdowns restyled and fixed; whole site restyled to one consistent look and made mobile-friendly.
+- Admin pages (admins only): shift scheduling with dropdowns, a weekly shift calendar, and an overview of on-call gaps.
+
+**Backend follow-ups** (small, listed in the frontend README): save the ticket `photo` field, serve `uploads/` so profile pictures display, set `role: "admin"` on an account, and build the scheduling API that the admin pages will switch to.

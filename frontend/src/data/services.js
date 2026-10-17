@@ -9,3 +9,9 @@ export const departmentServices = {
 };
 
 export const departments = Object.keys(departmentServices);
+
+// Display name for a service. The value sent to the backend stays lowercase.
+export const serviceLabel = (svc) =>
+  String(svc || '')
+    .replace(/^./, (c) => c.toUpperCase())
+    .replace(/\bac\b/gi, 'AC');
