@@ -46,10 +46,14 @@ const UserScheme = new mongoose.Schema({
 		ref: 'Team',
 		required: false,
 		select: true
+	},
+	// false means deactivated (soft delete). Deactivated responders are never on call.
+	active: {
+		type: Boolean,
+		default: true,
+		select: true
 	}
-
-
-})
+}, { timestamps: true })
 
 
 UserScheme.pre('save', async function(){

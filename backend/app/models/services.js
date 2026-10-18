@@ -7,7 +7,8 @@ const ServicesScheme = new mongoose.Schema({
  
     teamId:{
         type: String,
-        required: true,
+        // Empty for a service no team owns yet. Its tickets can't be auto-assigned.
+        required: false,
         ref: 'Team',
         select: true,
     },
@@ -18,7 +19,7 @@ const ServicesScheme = new mongoose.Schema({
         required:true
     }
   
-})
+}, { timestamps: true })
 
 const services = mongoose.model('Services', ServicesScheme)
 
