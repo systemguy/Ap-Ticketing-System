@@ -1,0 +1,30 @@
+const mongoose = require('../../database')
+const bcrypt = require('bcryptjs')
+
+
+const TeamScheme = new mongoose.Schema({
+
+	teamId:{
+		type: String,
+		required: false,
+		select: true,
+	},
+	name:{
+		type: String,
+		unique: true,
+		select: true,
+		required:true
+	},
+	lead:{
+		type: mongoose.Schema.Types.ObjectId,
+		ref: 'User',
+		required: false,
+		select: true,
+	},
+ 
+	
+},{ timestamps: true })
+
+const team = mongoose.model('Team', TeamScheme)
+
+module.exports = team
