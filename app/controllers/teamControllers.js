@@ -19,16 +19,16 @@ router.get('/', async(req, res) =>{
 		return res.status(500).send({error: 'Failed to load teams'})
 	}
 })
-
-router.patch('/set-lead/:teamName', async(req, res) =>{
-	try{
-		const team = await Team.findOne({name: req.params.teamName})
-		const {lead} = req.body
-		const teamwithNewLead =  await Team.findByIdAndUpdate(team._id, {lead})
-		return res.send(teamwithNewLead) 
-	}catch(err){
-		console.log(err)
-		return res.status(500).send({error: 'Failed to update team lead'})
-	}
-})
+//created this temporarily to set the leads manually, re-add later with a token verification to know its an admin
+// router.patch('/set-lead/:teamName', async(req, res) =>{
+// 	try{
+// 		const team = await Team.findOne({name: req.params.teamName})
+// 		const {lead} = req.body
+// 		const teamwithNewLead =  await Team.findByIdAndUpdate(team._id, {lead})
+// 		return res.send(teamwithNewLead) 
+// 	}catch(err){
+// 		console.log(err)
+// 		return res.status(500).send({error: 'Failed to update team lead'})
+// 	}
+// })
 module.exports = app => app.use('/teams', router)
