@@ -6,11 +6,13 @@ const Team = require('../models/team')
 const Ticket = require('../models/tickets')
 const authMiddleware = require('../middleware/authMiddleWare')
 const { publicUser } = require('../helpers/users')
+const { visibleTeams } = require('../helpers/shifts')
 
 const router = express.Router()
 router.use(authMiddleware)
 
 // The logged-in user, plus their team's name if they're a solver (null for reporters)
+// and the teams they lead (team lead is not a role, so it comes from the teams)
 router.get('/me', async(req, res) =>{
 	try{
 		const user = await User.findById(req.accountId)
@@ -18,7 +20,8 @@ router.get('/me', async(req, res) =>{
 			return res.status(401).send({error: 'Account not found. Please log in again.'})
 		}
 		const team = isValidObjectId(user.team) ? await Team.findById(user.team).select('name') : null
-		return res.send({...publicUser(user), teamName: team?.name ?? null})
+		const leads = await Team.find({lead: user._id}).select('name').sort({name: 1})
+		return res.send({...publicUser(user), teamName: team?.name ?? null, leads: leads.map(t => ({_id: t._id, name: t.name}))})
 	}catch(err){
 		console.error('Load profile failed:', err.message)
 		return res.status(500).send({error: 'Failed to load profile'})
@@ -59,6 +62,40 @@ router.get('/me/tickets', async(req, res) =>{
 	}catch(err){
 		console.error('Load my tickets failed:', err.message)
 		return res.status(500).send({error: 'Failed to load your tickets'})
+	}
+})
+
+// Staff the logged-in user can see on the schedule pages (?role=staff), for the Employee dropdowns.
+// department is each person's home team; departments lists every team they can cover.
+// Reporters get a 403: they don't work shifts.
+router.get('/', async(req, res) =>{
+	if(req.query.role !== 'staff'){
+		return res.status(400).send({error: 'Use /users?role=staff'})
+	}
+	try{
+		const me = await User.findById(req.accountId)
+		if(!me){
+			return res.status(401).send({error: 'Account not found. Please log in again.'})
+		}
+		const teams = await visibleTeams(me)
+		if(!teams.length){
+			return res.status(403).send({error: 'Only staff can see the team roster'})
+		}
+		const teamIds = teams.map(t => String(t._id))
+		const leadIds = teams.map(t => t.lead).filter(Boolean)
+		const people = await User.find({$or: [{team: {$in: teamIds}}, {_id: {$in: leadIds}}], active: {$ne: false}})
+			.select('name team').sort({name: 1})
+		const allTeams = await Team.find().select('name')
+		const nameOf = id => allTeams.find(t => String(t._id) === String(id))?.name ?? null
+		return res.send({staff: people.map(p => ({
+			_id: p._id,
+			name: p.name,
+			department: nameOf(p.team),
+			departments: teams.filter(t => String(t._id) === String(p.team) || String(t.lead) === String(p._id)).map(t => t.name),
+		}))})
+	}catch(err){
+		console.error('Load staff failed:', err.message)
+		return res.status(500).send({error: 'Failed to load staff'})
 	}
 })
 
