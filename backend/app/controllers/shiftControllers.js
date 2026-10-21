@@ -122,8 +122,8 @@ router.post('/', async(req, res) =>{
 			const slot = item?.shift ?? item?.slot
 			const person = personById.get(String(item?.employeeId ?? item?.responder))
 			if(!person) return errors.push(`${label}choose who covers the shift`)
-			if(!item.team && !isValidObjectId(person.team)) return errors.push(`${label}${person.name} is a reporter and can't be put on a shift`)
-			const team = item.team ? findTeam(teams, item.team) : teams.find(t => String(t._id) === String(person.team))
+			if(!item.team && (!person.team || person.team === 'user')) return errors.push(`${label}${person.name} is a reporter and can't be put on a shift`)
+			const team = item.team ? findTeam(teams, item.team) : teams.find(t => t.name === person.team)
 			if(!team) return errors.push(`${label}there's no team called "${item.team}"`)
 			if(!canManage(me, team)) return notAllowed.add(`Only ${team.name}'s team lead can change its schedule`)
 			if(!SLOTS[slot]) return errors.push(`${label}"${slot}" isn't a shift. Use morning, evening or overnight`)

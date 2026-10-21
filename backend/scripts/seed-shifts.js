@@ -8,7 +8,8 @@
 //   --end-team=OIT --end-date=2026-10-23   that team's schedule stops at the end of that day
 //   --swap                                 Morgan takes Tim's HVAC mornings (for the re-run test)
 //
-// New accounts get the password in SEED_PASSWORD; existing accounts keep theirs.
+// Users and services store their team by name (HVAC, Plumbing, Electrical, OIT), matching the
+// live database. New accounts get the password in SEED_PASSWORD; existing accounts keep theirs.
 // Re-running replaces the current and upcoming shifts of these four teams. Tickets keep the
 // responder they were assigned to, because the assignment is saved on the ticket.
 const mongoose = require('../database')
@@ -132,7 +133,7 @@ async function main() {
 		}
 		const people = {}
 		for (const r of ROSTER) {
-			const team = String(teamIds[r.team])
+			const team = r.team
 			let user = await User.findOne({ email: r.email })
 			if (user) {
 				// Existing account: make sure it's active staff on the right team. Its password stays.
@@ -147,7 +148,7 @@ async function main() {
 		}
 		for (const [name, services] of Object.entries(TEAMS)) {
 			for (const service of services) {
-				await Service.updateOne({ name: service }, { $set: { teamId: String(teamIds[name]) } }, { upsert: true })
+				await Service.updateOne({ name: service }, { $set: { teamId: name } }, { upsert: true })
 			}
 		}
 		await Service.updateOne({ name: UNOWNED_SERVICE }, { $unset: { teamId: 1 } }, { upsert: true })

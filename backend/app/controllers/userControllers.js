@@ -1,6 +1,5 @@
 // Profile routes for the logged-in user (Sprint 2 profile page)
 const express = require('express')
-const { isValidObjectId } = require('mongoose')
 const User = require('../models/user')
 const Team = require('../models/team')
 const Ticket = require('../models/tickets')
@@ -19,7 +18,7 @@ router.get('/me', async(req, res) =>{
 		if(!user){
 			return res.status(401).send({error: 'Account not found. Please log in again.'})
 		}
-		const team = isValidObjectId(user.team) ? await Team.findById(user.team).select('name') : null
+		const team = user.team ? await Team.findOne({name: user.team}).select('name') : null
 		const leads = await Team.find({lead: user._id}).select('name').sort({name: 1})
 		return res.send({...publicUser(user), teamName: team?.name ?? null, leads: leads.map(t => ({_id: t._id, name: t.name}))})
 	}catch(err){
@@ -81,17 +80,17 @@ router.get('/', async(req, res) =>{
 		if(!teams.length){
 			return res.status(403).send({error: 'Only staff can see the team roster'})
 		}
-		const teamIds = teams.map(t => String(t._id))
+		const teamNames = teams.map(t => t.name)
 		const leadIds = teams.map(t => t.lead).filter(Boolean)
-		const people = await User.find({$or: [{team: {$in: teamIds}}, {_id: {$in: leadIds}}], active: {$ne: false}})
+		const people = await User.find({$or: [{team: {$in: teamNames}}, {_id: {$in: leadIds}}], active: {$ne: false}})
 			.select('name team').sort({name: 1})
 		const allTeams = await Team.find().select('name')
-		const nameOf = id => allTeams.find(t => String(t._id) === String(id))?.name ?? null
+		const nameOf = name => allTeams.find(t => t.name === name)?.name ?? null
 		return res.send({staff: people.map(p => ({
 			_id: p._id,
 			name: p.name,
 			department: nameOf(p.team),
-			departments: teams.filter(t => String(t._id) === String(p.team) || String(t.lead) === String(p._id)).map(t => t.name),
+			departments: teams.filter(t => t.name === p.team || String(t.lead) === String(p._id)).map(t => t.name),
 		}))})
 	}catch(err){
 		console.error('Load staff failed:', err.message)

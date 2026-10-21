@@ -1,6 +1,5 @@
 // On-call schedule rules: the three daily shifts, schedule validation, who can be put on a
 // shift, who can change a team's schedule, and who is on call (used for auto-assignment).
-const { isValidObjectId } = require('mongoose')
 const Shift = require('../models/shift')
 const Team = require('../models/team')
 const { centralMoment, addDays, formatRange } = require('./time')
@@ -70,12 +69,12 @@ function responderProblems(shifts, now) {
 }
 
 // Why someone can't go on a team's shifts, or null if they can. They must be active staff
-// whose home team it is, or the team's lead. Reporters never can.
+// whose home team it is (user.team holds the team's name), or the team's lead. Reporters never can.
 function ineligibleReason(user, team) {
 	if (!user) return 'That person no longer has an account'
 	if (user.active === false) return `${user.name}'s account is deactivated`
-	if (String(team.lead) === String(user._id) || String(user.team) === String(team._id)) return null
-	if (!isValidObjectId(user.team)) return `${user.name} is a reporter and can't be put on a shift`
+	if (String(team.lead) === String(user._id) || user.team === team.name) return null
+	if (!user.team || user.team === 'user') return `${user.name} is a reporter and can't be put on a shift`
 	return `${user.name} isn't on ${team.name} and doesn't lead it`
 }
 
@@ -86,8 +85,8 @@ const canManage = (user, team) => user?.role === 'admin' || String(team.lead) ==
 // Empty for reporters.
 function visibleTeams(user) {
 	if (user.role === 'admin') return Team.find().sort({ name: 1 })
-	const home = isValidObjectId(user.team) ? [user.team] : []
-	return Team.find({ $or: [{ _id: { $in: home } }, { lead: user._id }] }).sort({ name: 1 })
+	const home = user.team ? [user.team] : []
+	return Team.find({ $or: [{ name: { $in: home } }, { lead: user._id }] }).sort({ name: 1 })
 }
 
 // A team given by id or by name ("HVAC"). The schedule page sends names today.
