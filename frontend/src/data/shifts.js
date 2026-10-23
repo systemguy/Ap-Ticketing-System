@@ -8,13 +8,6 @@ export const SLOTS = [
 
 export const slotOf = (id) => SLOTS.find((s) => s.id === id);
 
-// How a new shift repeats when a team lead creates it
-export const REPEAT_OPTIONS = [
-  { id: 'once', label: 'Just this day', dates: (start) => [start] },
-  { id: 'week', label: 'Every day for 7 days', dates: (start) => Array.from({ length: 7 }, (_, i) => addDays(start, i)) },
-  { id: 'weekly4', label: 'Same day for 4 weeks', dates: (start) => [0, 7, 14, 21].map((d) => addDays(start, d)) },
-];
-
 // ---- Dates are 'YYYY-MM-DD' strings for the Central day (the building is in Austin) ----
 
 const TZ = 'America/Chicago';

@@ -4,7 +4,7 @@ import { addShifts, changeShift, getOnCall, listShifts, listStaff, listTeams, re
 import { useSession } from '../../context/SessionContext';
 import Modal, { ErrorList } from '../../components/Modal';
 import {
-  REPEAT_OPTIONS, SLOTS, addDays, centralHour, formatDay, formatTime, slotOf, todayKey, weekDays, weekStart,
+  SLOTS, addDays, centralHour, formatDay, formatTime, slotOf, todayKey, weekDays, weekStart,
 } from '../../data/shifts';
 import './Schedule.css';
 
@@ -275,7 +275,6 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
   const [date, setDate] = useState(initial.date);
   const [slot, setSlot] = useState(initial.slot || 'morning');
   const [employeeId, setEmployeeId] = useState('');
-  const [repeat, setRepeat] = useState('once');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -284,13 +283,14 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
     setBusy(true);
     setError(null);
     try {
-      const dates = REPEAT_OPTIONS.find((r) => r.id === repeat).dates(date);
-      const res = await addShifts(dates.map((d) => ({ team: team.name, employeeId, date: d, shift: slot })));
+      // One shift at a time: the backend refuses any schedule with a gap, so shifts are added
+      // in order, each one starting where the team's coverage currently ends.
+      const res = await addShifts([{ team: team.name, employeeId, date, shift: slot }]);
       const who = staff.find((p) => p._id === employeeId)?.name || 'They';
-      const n = res.added?.length || 0;
-      let text = `${who}: ${n} ${slotOf(slot).label.toLowerCase()} shift${n === 1 ? '' : 's'} added to ${team.name}.`;
-      if (res.skipped?.length) text += ` ${res.skipped.length} already on the schedule.`;
-      onSaved(text);
+      const when = `${slotOf(slot).label.toLowerCase()} shift on ${formatDay(date, { weekday: 'short', month: 'short', day: 'numeric' })}`;
+      onSaved(res.added?.length
+        ? `${who}: ${when} added to ${team.name}.`
+        : `${who} already has the ${when}.`);
     } catch (err) {
       setError(err);
       setBusy(false);
@@ -324,13 +324,7 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
           </select>
           {!staff.length && <p className="field-hint">Loading the team roster…</p>}
         </div>
-        <div className="form-group">
-          <label htmlFor="ns-repeat">Repeat</label>
-          <select id="ns-repeat" value={repeat} onChange={(e) => setRepeat(e.target.value)}>
-            {REPEAT_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-          </select>
-          <p className="field-hint">The schedule is checked before anything is saved: no gaps, no double-booking, and nobody on two teams at once.</p>
-        </div>
+        <p className="field-hint">The schedule is checked before anything is saved: no gaps, no double-booking, and nobody on two teams at once.</p>
         <ErrorList error={error} />
         <div className="modal-actions">
           <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>Cancel</button>

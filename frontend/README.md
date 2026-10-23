@@ -171,8 +171,8 @@ Everything runs on real data: the demo-data admin pages and `data/demoStaff.js` 
   The current shift is highlighted green; past ones are faded; uncovered upcoming slots are
   hatched. Previous / next / this week buttons.
 - **Team leads only** (and admins): a **+ New shift** button, plus **+ Add** in empty slots.
-  Pick a date, the shift, who covers it (only that team's members and its lead are offered)
-  and whether it repeats (just this day, every day for 7 days, or the same day for 4 weeks).
+  Pick a date, the shift and who covers it (only that team's members and its lead are offered),
+  one shift at a time.
   Click a name to change who covers that shift or remove it. The backend checks everything
   before saving and every problem shows in the dialog, e.g. "HVAC is missing coverage from
   Friday, Oct 30, 7:00 AM to Sunday, Nov 1, 7:00 AM". Removing a shift that would leave a gap
