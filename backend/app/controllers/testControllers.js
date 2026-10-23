@@ -117,6 +117,9 @@ router.post('/login/', async(req, res)=>{
 		const user = await User.findOne({email: email.trim().toLowerCase()}).select('+password')
 		if(!user || !await bcrypt.compare(password, user.password))
 			return res.status(400).send({error: 'Invalid email or password'})
+		// An administrator deactivated this account (soft delete)
+		if(user.active === false)
+			return res.status(403).send({error: 'This account has been deactivated. Contact building management.'})
 		return res.send({
 			user: publicUser(user),
 			token: generateToken({id: user.id, team: user.team})

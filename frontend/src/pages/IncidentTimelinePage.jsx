@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { addComment, changeStatus, getTicket } from '../api/tickets';
+import { addComment, changeStatus, getTicket, reassignTicket } from '../api/tickets';
 import { useSession } from '../context/SessionContext';
+import Modal from '../components/Modal';
 import { severityOf } from '../data/severity';
+import { formatTime } from '../data/shifts';
 import { formatDate, formatStatus, nameOf } from '../utils/incidents';
 import './Profile.css';
 
@@ -154,6 +156,7 @@ export default function IncidentTimelinePage() {
   const [busy, setBusy] = useState(false);
   const [comment, setComment] = useState('');
   const [pending, setPending] = useState(null); // status waiting on confirmation
+  const [reassigning, setReassigning] = useState(false); // reassign confirmation open
 
   const back = canSeeQueue ? { to: '/incidents', label: 'Back to team queue' } : { to: '/profile', label: 'Back to my incidents' };
 
@@ -200,6 +203,21 @@ export default function IncidentTimelinePage() {
     }
     setPending(null);
     await load(); // show the ticket's current status either way
+    setBusy(false);
+  }
+
+  async function reassign() {
+    setBusy(true);
+    setFlash(null);
+    try {
+      const res = await reassignTicket(id, data.assignment.onCall._id);
+      setFlash({ ok: true, text: `${res.message}. The change is on the timeline.` });
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      setFlash({ ok: false, text: `Not reassigned. ${err.message}` });
+    }
+    setReassigning(false);
+    await load();
     setBusy(false);
   }
 
@@ -280,6 +298,36 @@ export default function IncidentTimelinePage() {
         </p>
       )}
 
+      {/* Team lead of this ticket's team: hand it to whoever is on call right now */}
+      {data.assignment && (
+        <section className="pf-assign" aria-labelledby="assign-heading">
+          <div>
+            <h2 id="assign-heading" className="pf-assign-title">Assignment</h2>
+            <p className="pf-assign-line">
+              {ticket.assignedTo ? <>Assigned to <b>{nameOf(ticket.assignedTo)}</b></> : <>Not assigned yet</>}
+              {data.assignment.onCall && (
+                <> · On call for {data.assignment.team} now: <b>{data.assignment.onCall.name}</b>
+                  {data.assignment.until && <> until {formatTime(data.assignment.until, true)}</>}
+                </>
+              )}
+            </p>
+            {!data.assignment.canReassign && data.assignment.reason && (
+              <p className="pf-assign-note">{data.assignment.reason}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn-small"
+            disabled={busy || !data.assignment.canReassign}
+            onClick={() => setReassigning(true)}
+          >
+            {data.assignment.onCall && data.assignment.canReassign
+              ? `${ticket.assignedTo ? 'Reassign' : 'Assign'} to ${data.assignment.onCall.name}`
+              : 'Reassign'}
+          </button>
+        </section>
+      )}
+
       {/* Only the ticket's team gets buttons, and only for the legal next statuses */}
       {isSolver && nextStatuses.length > 0 && (
         <div className="pf-status-actions">
@@ -349,6 +397,23 @@ export default function IncidentTimelinePage() {
           onCancel={() => setPending(null)}
           onConfirm={(reason) => moveTo(pending, reason)}
         />
+      )}
+
+      {reassigning && data.assignment?.onCall && (
+        <Modal title={ticket.assignedTo ? 'Reassign this ticket?' : 'Assign this ticket?'} onClose={() => setReassigning(false)} busy={busy}>
+          <p>
+            {ticket.assignedTo
+              ? <>This moves the ticket from <b>{nameOf(ticket.assignedTo)}</b> to <b>{data.assignment.onCall.name}</b>, who is on call for {data.assignment.team} right now.</>
+              : <>This gives the ticket to <b>{data.assignment.onCall.name}</b>, who is on call for {data.assignment.team} right now.</>}
+            {' '}The status stays {formatStatus(ticket.status)}, and the timeline records the time, who made the change, and the previous and new responder.
+          </p>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-outline" onClick={() => setReassigning(false)} disabled={busy} autoFocus>Cancel</button>
+            <button type="button" className="btn" onClick={reassign} disabled={busy}>
+              {busy ? 'Saving…' : `${ticket.assignedTo ? 'Reassign' : 'Assign'} to ${data.assignment.onCall.name}`}
+            </button>
+          </div>
+        </Modal>
       )}
     </main>
   );

@@ -541,3 +541,5 @@ th {
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 .modal-actions .btn { margin-right: 0; }
+
+.assignee { margin-top: 6px; white-space: nowrap; }

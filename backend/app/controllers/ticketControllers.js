@@ -5,7 +5,11 @@ const user = require('../models/user')
 const Team = require('../models/team')
 const Service = require('../models/services')
 const authMiddleware =  require('../middleware/authMiddleWare')
-const { NEXT_STATUSES, STATUS_DATES, isTicketSolver, isTicketOwner, isValidSeverity } = require('../helpers/tickets')
+const {
+	NEXT_STATUSES, STATUS_DATES, ACTIVE_STATUSES,
+	isTicketOwner, isValidSeverity, ticketAccess, teamsLedBy,
+} = require('../helpers/tickets')
+const { whoIsOnCall } = require('../helpers/shifts')
 
 const router = express.Router()
 router.use(authMiddleware)
@@ -14,18 +18,31 @@ router.use(authMiddleware)
 router.param('ticketId', (req, res, next, id) =>
 	isValidObjectId(id) ? next() : res.status(404).send({error: 'Ticket not found'}))
 
+// Why nobody can take a ticket right now, in words a team lead can act on (see whoIsOnCall)
+const NO_RESPONDER = {
+	'no-schedule': (team) => `${team} has no on-call schedule yet`,
+	'schedule-ended': (team) => `${team}'s on-call schedule has ended`,
+	'not-covered': (team) => `Nobody is on call for ${team} right now`,
+	'responder-inactive': (team) => `The person on call for ${team} has a deactivated account`,
+}
 
+// Tickets you filed, plus every ticket for your home team and any team you lead.
+// Admins see every ticket.
 router.get('/', async (req, res)=>{
 	try{
 	const {accountId, team} = req
-	const services = await Service.find({ teamId: team }).select('name');
+	const me = await user.findById(accountId).select('role')
+	if(me?.role === 'admin'){
+		const tickets = await Ticket.find().select('-events').populate('userPosted', 'name email').populate('assignedTo', 'name email')
+		return res.status(200).json({ tickets })
+	}
+	const myTeams = [...new Set([team, ...await teamsLedBy(accountId)])].filter(t => t && t !== 'user')
+	const services = await Service.find({ teamId: {$in: myTeams} }).select('name');
 	const serviceNames = services.map(service => service.name);
-	console.log(serviceNames)
-	console.log(services)
 	const tickets = await Ticket.find({
 					$or:[{userPosted: accountId},
 					 {service: { $in: serviceNames }} ]
-					}).select('-events').populate('userPosted', 'name email');
+					}).select('-events').populate('userPosted', 'name email').populate('assignedTo', 'name email');
 	return res.status(200).json({ tickets });
 	}
 	catch(err){
@@ -119,7 +136,7 @@ router.put('/edit/:ticketId', async(req, res) =>{
 	}
 })
 
-// Solvers on the ticket's team move it through the lifecycle (see NEXT_STATUSES).
+// Solvers on the ticket's team (and its team lead) move it through the lifecycle (see NEXT_STATUSES).
 // Body: { status } with the status to move to. Without it, the ticket moves one step forward.
 router.put('/update/:ticketId', async(req, res) =>{
 	try{
@@ -127,7 +144,8 @@ router.put('/update/:ticketId', async(req, res) =>{
 		if(!ticket){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
-		if(!await isTicketSolver(req.team, ticket)){
+		const access = await ticketAccess(req, ticket)
+		if(!access.solver && !access.lead && !access.admin){
 			return res.status(403).send({error: `Only the team that handles ${ticket.service} can change this ticket's status`})
 		}
 		const from = ticket.status
@@ -177,9 +195,8 @@ router.get('/:ticketId', async(req, res) =>{
 		if(!ticket){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
-		const owner = isTicketOwner(req.accountId, ticket)
-		const solver = await isTicketSolver(req.team, ticket)
-		if(!owner && !solver){
+		const {owner, solver, lead, admin, team} = await ticketAccess(req, ticket)
+		if(!owner && !solver && !lead && !admin){
 			return res.status(403).send({error: "You don't have access to this ticket"})
 		}
 		const data = ticket.toObject()
@@ -187,10 +204,33 @@ router.get('/:ticketId', async(req, res) =>{
 		if(!data.events.some(e => e.type === 'created')){
 			data.events.unshift({_id: `${data._id}-created`, type: 'created', actor: data.userPosted, createdAt: data.createdAt})
 		}
+		const staff = solver || lead || admin
+		// Team leads (and admins) see who is on call now, so they can reassign an active ticket to them
+		let assignment = null
+		if((lead || admin) && ACTIVE_STATUSES.includes(data.status)){
+			if(!team){
+				assignment = {canReassign: false, onCall: null, reason: `No team owns ${data.service}, so there's no one on call for it`}
+			}else{
+				const result = await whoIsOnCall(team._id)
+				const onCall = result.responder ? {_id: result.responder._id, name: result.responder.name} : null
+				const current = String(data.assignedTo?._id ?? '')
+				assignment = {
+					team: team.name,
+					onCall,
+					until: result.shift?.end ?? null,
+					canReassign: Boolean(onCall) && String(onCall._id) !== current,
+					reason: onCall
+						? (String(onCall._id) === current ? `${onCall.name} is on call and already has this ticket` : null)
+						: NO_RESPONDER[result.reason](team.name),
+				}
+			}
+		}
 		return res.send({
 			ticket: data,
-			role: owner ? 'reporter' : 'solver',
-			nextStatuses: solver ? NEXT_STATUSES[data.status] || [] : [],
+			role: owner && !staff ? 'reporter' : 'solver',
+			isLead: lead || admin,
+			nextStatuses: staff ? NEXT_STATUSES[data.status] || [] : [],
+			assignment,
 		})
 	}catch(err){
 		console.log(err)
@@ -213,9 +253,10 @@ router.post('/:ticketId/comments', async(req, res) =>{
 		if(!ticket){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
+		const access = await ticketAccess(req, ticket)
 		let type = null
-		if(isTicketOwner(req.accountId, ticket)) type = 'comment'
-		else if(await isTicketSolver(req.team, ticket)) type = 'note'
+		if(access.owner) type = 'comment'
+		else if(access.solver || access.lead || access.admin) type = 'note'
 		if(!type){
 			return res.status(403).send({error: 'Only the reporter and the team handling this ticket can comment on it'})
 		}
@@ -224,6 +265,63 @@ router.post('/:ticketId/comments', async(req, res) =>{
 	}catch(err){
 		console.log(err)
 		res.status(500).json({error: 'failed to add comment'})
+	}
+})
+
+// Manual reassignment (team lead of the ticket's team, or an admin). Body: { responderId } (optional).
+// A ticket can only go to the person on call for its team right now: if Tim is on call, the lead
+// can't give ticket #14 to Jane until Jane's shift starts. The status stays as it is.
+// The timeline records when it happened, who did it, and the previous and new responder.
+router.put('/:ticketId/assign', async(req, res) =>{
+	try{
+		const ticket = await Ticket.findById(req.params.ticketId).populate('assignedTo', 'name')
+		if(!ticket){
+			return res.status(404).send({error: 'Ticket not found'})
+		}
+		const {lead, admin, team} = await ticketAccess(req, ticket)
+		if(!lead && !admin){
+			return res.status(403).send({error: team
+				? `Only ${team.name}'s team lead can reassign this ticket`
+				: 'Only a team lead can reassign tickets'})
+		}
+		if(!ACTIVE_STATUSES.includes(ticket.status)){
+			return res.status(409).send({error: `This ticket is ${ticket.status}. Only open tickets can be reassigned; reopen it first.`})
+		}
+		if(!team){
+			return res.status(409).send({error: `No team owns ${ticket.service}, so there's no one on call to assign it to`})
+		}
+		const result = await whoIsOnCall(team._id)
+		if(!result.responder){
+			return res.status(409).send({error: `${NO_RESPONDER[result.reason](team.name)}, so this ticket can't be reassigned`})
+		}
+		const target = result.responder
+		const wanted = req.body?.responderId
+		if(wanted && String(wanted) !== String(target._id)){
+			return res.status(409).send({error: `Only ${target.name} is on call for ${team.name} right now. Tickets can only go to the person on call.`})
+		}
+		const previous = ticket.assignedTo
+		if(previous && String(previous._id) === String(target._id)){
+			return res.status(409).send({error: `${target.name} already has this ticket`})
+		}
+		const me = await user.findById(req.accountId).select('name')
+		const now = new Date()
+		// Matching on the old assignee makes this fail if someone else reassigned it first
+		const updated = await Ticket.findOneAndUpdate(
+			{_id: ticket._id, assignedTo: previous?._id ?? null, status: ticket.status},
+			{$set: {assignedTo: target._id}, $push: {events: {type: 'assignment_change', actor: req.accountId, from: previous?.name, to: target.name, createdAt: now}}},
+			{returnDocument: 'after'})
+		if(!updated){
+			return res.status(409).send({error: 'Someone else just changed this ticket. Reload and try again.'})
+		}
+		return res.send({
+			message: previous ? `Reassigned from ${previous.name} to ${target.name}` : `Assigned to ${target.name}`,
+			assignedTo: {_id: target._id, name: target.name},
+			by: me?.name,
+			at: now,
+		})
+	}catch(err){
+		console.log(err)
+		res.status(500).json({error: 'Failed to reassign the ticket'})
 	}
 })
 

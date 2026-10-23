@@ -30,13 +30,13 @@ VITE_API_URL=http://localhost:3000
 | `/profile` | Profile, bio, my active and resolved/closed incidents | Logged in |
 | `/tickets/new` | Report an issue (with optional photo) | Logged in |
 | `/incidents/:id/timeline` | One ticket: details, photo, status buttons, timeline, comments | Reporter + ticket's team |
-| `/incidents` | Team Queue: open tickets for my team + ones I filed | Staff and admins |
-| `/admin` | Admin overview | Admins |
-| `/admin/schedule` | Assign staff to shifts with dropdowns | Admins |
-| `/admin/calendar` | Week calendar of everyone's shifts | Admins |
+| `/incidents` | Team Queue: open tickets for my teams (home team + teams I lead) + ones I filed | Staff and admins |
+| `/schedule/:team` | On-call calendar for one team; team leads add, change and remove shifts | Staff and admins |
+| `/admin` | Admin portal: teams, leads, who's on call, accounts | Admins |
 
-"Staff" means the user's `team` in their login token is not `"user"`. "Admin" means
-`role: "admin"` on their user document. Hiding pages is only a convenience; the backend
+"Staff" means the user's `team` in their login token is not `"user"`. A **team lead** is
+anyone a Team document names as its `lead` (it comes back from `/users/me` as `leads`).
+"Admin" means `role: "admin"` on their user document. Hiding pages is only a convenience; the backend
 still decides what data each user can read or change.
 
 ## Expected endpoints
@@ -45,17 +45,20 @@ still decides what data each user can read or change.
 - `GET /users/me`, `PATCH /users/me`, `GET /users/me/tickets`
 - `GET /tickets`, `POST /tickets/create`, `PUT /tickets/edit/:id`, `PUT /tickets/delete/:id`
 - `GET /tickets/:id`, `PUT /tickets/update/:id`, `POST /tickets/:id/comments`
+- `PUT /tickets/:id/assign` (team lead or admin; only to whoever is on call now)
+- `GET /shifts`, `GET /shifts/on-call`, `POST /shifts`, `PATCH /shifts/:id`, `DELETE /shifts/:id`, `GET /teams`, `GET /users?role=staff`
+- `GET /admin/overview`, `GET /admin/users`, `PATCH /admin/teams/:id/lead`, `PATCH /admin/users/:id/active`
 
 ## Project layout
 
 ```
 src/
-  api/          client.js (fetch wrapper), tickets.js, profile.js, schedule.js
-  components/   NavBar, TicketForm, ProtectedRoute, RoleRoute
-  context/      SessionContext (who is logged in: id, team, role, photo)
-  data/         services, severity, shifts, demoStaff (placeholder roster)
+  api/          client.js (fetch wrapper), tickets.js, profile.js, schedule.js, admin.js
+  components/   NavBar, TicketForm, ProtectedRoute, RoleRoute, Modal
+  context/      SessionContext (who is logged in: id, team, role, photo, teams they lead)
+  data/         services, severity, shifts (the 3 daily shifts + Central-time date helpers)
   pages/        Home, Auth, Services, Incidents (Team Queue), NewTicketPage,
-                ProfilePage, IncidentTimelinePage, admin/
+                ProfilePage, IncidentTimelinePage, schedule/, admin/
   utils/        incidents.js (sorting, columns, dates), images.js (photo compression)
 ```
 
@@ -123,15 +126,8 @@ lines needed to finish two features are listed at the end.
   active-page underline, a mobile menu, cards with soft shadows, a details panel
   on the ticket page, and a redesigned home page. Every page now works at phone
   width.
-- **Admin pages** (visible only to users with `role: "admin"`):
-  - **Scheduling:** dropdowns for Department → Employee, Shift (Morning, Evening,
-    Overnight, On-call), a date, and Repeat (just this day / every weekday that
-    week / same day for 4 weeks). Duplicate shifts are skipped, and upcoming shifts
-    can be filtered and removed.
-  - **Shift calendar:** a week grid (shifts × days) showing who is working,
-    colored by department, with previous/next week and a department filter. A day
-    with no on-call person for the chosen department is flagged.
-  - **Overview:** shifts this week, staff scheduled, and on-call gaps.
+- **Admin pages:** replaced by the real on-call schedule and admin portal (see
+  "Sprint 3: schedule, reassignment, admin portal" below).
 
 ### Shared code we added
 
@@ -154,9 +150,69 @@ lines needed to finish two features are listed at the end.
    the folder isn't served. In `app.js` add
    `app.use('/uploads', express.static(path.join(__dirname, 'uploads')))`.
    Until then everyone shows the default avatar.
-3. **Make an admin.** There's no admin signup (on purpose). Set it in Mongo:
-   `db.users.updateOne({ email: "..." }, { $set: { role: "admin" } })`.
-4. **Scheduling API (Sprint 3).** The admin pages currently save shifts in the
-   browser's localStorage and use a sample staff list (`data/demoStaff.js`). The
-   expected endpoints are documented at the top of `src/api/schedule.js`; once they
-   exist, only that file needs to change.
+3. ~~Make an admin~~ Done: `node --env-file=.env scripts/make-admin.js email`.
+4. ~~Scheduling API~~ Done: the schedule page uses Dayan's `/shifts` routes.
+
+---
+
+## Sprint 3: schedule, reassignment, admin portal (for the group)
+
+Branch `sprint3-schedule-reassign-admin`, cut from `main` after Dayan's team-names merge.
+Everything runs on real data: the demo-data admin pages and `data/demoStaff.js` are gone.
+
+### Shift schedule page (`/schedule`, link "Schedule" in the navbar)
+
+- **One page per team** (`/schedule/HVAC`, `/schedule/Plumbing`, …) with tabs. You see your
+  home team plus every team you lead; admins see all teams. Reporters and logged-out
+  visitors can't open it (they're sent to their profile / the login page).
+- **Who's on call now** banner at the top: the person and when their shift ends, or why
+  nobody is (no schedule yet, schedule ended, a gap, deactivated account).
+- **Week calendar:** Morning / Evening / Overnight × Mon–Sun, real shifts from the database.
+  The current shift is highlighted green; past ones are faded; uncovered upcoming slots are
+  hatched. Previous / next / this week buttons.
+- **Team leads only** (and admins): a **+ New shift** button, plus **+ Add** in empty slots.
+  Pick a date, the shift, who covers it (only that team's members and its lead are offered)
+  and whether it repeats (just this day, every day for 7 days, or the same day for 4 weeks).
+  Click a name to change who covers that shift or remove it. The backend checks everything
+  before saving and every problem shows in the dialog, e.g. "HVAC is missing coverage from
+  Friday, Oct 30, 7:00 AM to Sunday, Nov 1, 7:00 AM". Removing a shift that would leave a gap
+  is refused the same way.
+
+### Reassign button on tickets (team leads)
+
+On a ticket's page, the lead of that ticket's team sees an **Assignment** panel: who has the
+ticket, who's on call for the team right now, and a **Reassign to <name>** button. Per the
+spec, a ticket can only go to the person on call now, so the button names them and is greyed
+out (with the reason) when that person already has it or nobody is on call. It asks for
+confirmation, keeps the status as it is, and the timeline records the time, who made the
+change, and the previous and new responder ("Morgan Lee reassigned this from Tim Walker to
+Morgan Lee").
+
+Team leads now also see and can work every ticket for the teams they lead, not just their home
+team (Morgan's home team is HVAC but he leads Plumbing and Electrical too). The Team Queue tags
+each ticket with its team and shows who it's assigned to.
+
+### Admin portal (`/admin`, admins only)
+
+- **Stats:** active tickets, unassigned tickets, teams with nobody on call, active responders.
+- **Teams:** each team's lead (change it from a dropdown), who's on call now and until when,
+  how far ahead it's scheduled, and its services. Services with no owning team are listed.
+- **Accounts:** search and filter everyone; **Deactivate / Reactivate** (soft delete) with a
+  confirmation. A deactivated person can't log in and is never treated as on call. You can't
+  deactivate yourself or someone who still leads a team.
+
+### Backend changes on this branch (Dayan, please review)
+
+- `PUT /tickets/:id/assign`: team lead of the ticket's team or an admin; only to the person
+  on call now; refuses resolved/closed tickets, unowned services and teams with nobody on call
+  with a clear message; records an `assignment_change` event.
+- `GET /tickets/:id` also returns `assignment` (who's on call, whether reassign is allowed and
+  why not) for leads. `GET /tickets`, status changes and notes now include teams you lead.
+- New `adminControllers.js` (`/admin/...`, role `admin` only). Login refuses deactivated
+  accounts.
+- `scripts/make-admin.js`: `node --env-file=.env scripts/make-admin.js someone@example.com`
+
+### Not on this branch
+
+Auto-assignment on ticket creation is Paulo's piece; his last push to `auto-assignment` only
+contained a Windows shortcut file, so the real `ticketControllers.js` still needs committing.

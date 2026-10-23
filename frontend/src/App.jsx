@@ -10,8 +10,7 @@ import ProfilePage from './pages/ProfilePage';
 import IncidentTimelinePage from './pages/IncidentTimelinePage';
 import NewTicketPage from './pages/NewTicketPage';
 import AdminPage from './pages/admin/AdminPage';
-import AdminSchedulePage from './pages/admin/AdminSchedulePage';
-import AdminCalendarPage from './pages/admin/AdminCalendarPage';
+import SchedulePage from './pages/schedule/SchedulePage';
 
 function App() {
   return (
@@ -31,13 +30,14 @@ function App() {
           {/* Staff and admins only. Residents see their incidents on their profile. */}
           <Route element={<RoleRoute allow="queue" />}>
             <Route path="/incidents" element={<Incidents />} />
+            {/* On-call calendar, one page per team. Leads (and admins) can add and change shifts. */}
+            <Route path="/schedule" element={<SchedulePage />} />
+            <Route path="/schedule/:team" element={<SchedulePage />} />
           </Route>
 
           {/* Admins only */}
           <Route element={<RoleRoute allow="admin" />}>
             <Route path="/admin" element={<AdminPage />} />
-            <Route path="/admin/schedule" element={<AdminSchedulePage />} />
-            <Route path="/admin/calendar" element={<AdminCalendarPage />} />
           </Route>
         </Route>
 

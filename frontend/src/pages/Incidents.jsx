@@ -20,18 +20,16 @@ function getReporter(incident) {
   return { name: 'Unknown', email: '' };
 }
 
-// Services handled by the logged-in solver's team, matched by team name.
-function teamServicesFor(teamName) {
-  if (!teamName) return null;
-  const key = Object.keys(departmentServices).find((d) => d.toLowerCase() === String(teamName).toLowerCase());
-  return key ? departmentServices[key] : null;
+// The team (department) that handles a service, e.g. "pipe repairs" -> "Plumbing"
+function teamOfService(service) {
+  return Object.keys(departmentServices).find((d) => departmentServices[d].includes(service)) || null;
 }
 
 // Team queue: tickets the user filed plus every open ticket for their team.
 // Residents never reach this page (see RoleRoute); they use their profile.
 function Incidents() {
   const navigate = useNavigate();
-  const { userId, user, logout } = useSession();
+  const { userId, logout, myTeams, isAdmin, leads } = useSession();
   const [incidents, setIncidents] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [editing, setEditing] = useState(null); // ticket being edited
@@ -72,16 +70,16 @@ function Incidents() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [deleteTarget]);
 
-  const teamServices = teamServicesFor(user?.teamName);
-
-  // The list only contains tickets I filed or my team's tickets, so anything I
-  // didn't file is my team's. A ticket I filed is also my team's if it's one of our services.
+  // The list only contains tickets I filed or tickets for my teams (home team and any team I
+  // lead), so anything I didn't file is my team's. A ticket I filed is also my team's if one of
+  // my teams handles its service. teamName says which team, for leads with several.
+  const myTeamsKey = myTeams.join('|');
   const relationOf = useCallback((incident) => {
     const filed = isFiledBy(incident, userId);
-    const svc = incident.service || incident.type;
-    const team = !filed || Boolean(teamServices?.includes(svc));
-    return { filed, team };
-  }, [userId, teamServices]);
+    const teamName = teamOfService(incident.service || incident.type);
+    const team = !filed || isAdmin || myTeamsKey.split('|').includes(teamName);
+    return { filed, team, teamName };
+  }, [userId, isAdmin, myTeamsKey]);
 
   async function confirmDelete() {
     if (!deleteTarget || deleting) return;
@@ -124,7 +122,9 @@ function Incidents() {
     <main className="page page-wide">
       <div className="page-head">
         <div>
-          <p className="eyebrow">{user?.teamName ? `${user.teamName} team` : 'Staff'}</p>
+          <p className="eyebrow">
+            {isAdmin ? 'All teams' : leads.length ? `Team lead · ${myTeams.join(', ')}` : myTeams.length ? `${myTeams[0]} team` : 'Staff'}
+          </p>
           <h1>Team Queue</h1>
           <p className="lede">Open tickets for your team, plus any you filed yourself.</p>
         </div>
@@ -220,7 +220,7 @@ function Incidents() {
                     )}
                     <div className="tag-row">
                       {rel.filed && <span className="tag">Filed by you</span>}
-                      {rel.team && <span className="tag tag-team">Your team</span>}
+                      {rel.team && <span className="tag tag-team">{myTeams.length > 1 || isAdmin ? rel.teamName || 'Your team' : 'Your team'}</span>}
                       {rel.filed && !rel.team && <span className="tag tag-muted">Handled by another team</span>}
                     </div>
                   </td>
@@ -241,6 +241,9 @@ function Incidents() {
                   </td>
                   <td>
                     <span className={`status status-${statusLabel.toLowerCase()}`}>{formatStatus(statusLabel)}</span>
+                    <div className="muted assignee">
+                      {incident.assignedTo ? `→ ${incident.assignedTo.name || 'Assigned'}` : 'Unassigned'}
+                    </div>
                   </td>
                   <td className="actions-cell">
                     {/* Only show what this user is allowed to do with this ticket */}

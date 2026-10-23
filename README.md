@@ -62,4 +62,13 @@ Full details, file by file, are in [`frontend/README.md`](frontend/README.md#spr
 - Dropdowns restyled and fixed; whole site restyled to one consistent look and made mobile-friendly.
 - Admin pages (admins only): shift scheduling with dropdowns, a weekly shift calendar, and an overview of on-call gaps.
 
-**Backend follow-ups** (small, listed in the frontend README): save the ticket `photo` field, serve `uploads/` so profile pictures display, set `role: "admin"` on an account, and build the scheduling API that the admin pages will switch to.
+**Backend follow-ups** (small, listed in the frontend README): save the ticket `photo` field and serve `uploads/` so profile pictures display.
+
+## Sprint 3 – Schedule, reassignment and admin portal (`sprint3-schedule-reassign-admin`)
+
+- **Shift schedule page** (`/schedule`): one tab per team, who's on call now, and a week calendar of real shifts. Team leads get a **+ New shift** button and can change or remove shifts; the backend's schedule checks show every problem (gaps, double-booking, one person on two teams).
+- **Reassign button** on tickets for the team lead: hands an active ticket to whoever is on call now, and the timeline records when, who did it, and the previous and new responder.
+- **Admin portal** (`/admin`): every team's lead (changeable), who's on call, unowned services, and all accounts with deactivate/reactivate.
+- Make an admin with `node --env-file=.env scripts/make-admin.js someone@example.com` in `backend/`.
+
+Details are in [`frontend/README.md`](frontend/README.md#sprint-3-schedule-reassignment-admin-portal-for-the-group).

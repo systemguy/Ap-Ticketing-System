@@ -193,3 +193,24 @@
 
 .pf-comment-form { margin-top: 32px; padding: 24px 28px; background: var(--surface); border: 1px solid var(--line); }
 .pf-comment-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+
+/* ---- Assignment panel (team leads) ---- */
+
+.pf-assign {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin: 0 0 28px;
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+}
+
+.pf-assign .btn { margin-right: 0; }
+.pf-assign-title { margin: 0 0 4px; font-size: 22px; }
+.pf-assign-line { margin: 0; color: var(--text); }
+.pf-assign-line b { font-weight: 500; color: var(--ink); }
+.pf-assign-note { margin: 6px 0 0; font-size: 14px; color: var(--muted); }

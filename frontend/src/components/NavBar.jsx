@@ -37,6 +37,7 @@ function NavBar() {
         <NavLink to="/services">Services</NavLink>
         {loggedIn && <NavLink to="/tickets/new">Report an Issue</NavLink>}
         {canSeeQueue && <NavLink to="/incidents">Team Queue</NavLink>}
+        {canSeeQueue && <NavLink to="/schedule">Schedule</NavLink>}
         {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         {loggedIn ? (
           <>

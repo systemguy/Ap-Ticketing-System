@@ -76,6 +76,9 @@ export function SessionProvider({ children }) {
     const loggedIn = Boolean(claims);
     const isAdmin = String(user?.role || '').toLowerCase() === 'admin';
     const isStaff = loggedIn && !isResidentTeam(claims?.team);
+    // Team lead is not a role: it's the teams this person leads (from /users/me)
+    const leads = (user?.leads || []).map((t) => t.name);
+    const homeTeam = isStaff ? claims?.team : null;
     return {
       loggedIn,
       userId: claims?.id || null,
@@ -84,6 +87,10 @@ export function SessionProvider({ children }) {
       loadingUser,
       isAdmin,
       isStaff,
+      leads,
+      isLead: leads.length > 0,
+      // Teams whose schedule and tickets this person works with: home team first, then teams they lead
+      myTeams: [...new Set([homeTeam, ...leads].filter(Boolean))],
       // Staff and admins work the team queue; residents use their profile
       canSeeQueue: isStaff || isAdmin,
       setUser,
