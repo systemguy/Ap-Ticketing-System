@@ -64,6 +64,13 @@ function describe(event) {
       return `${actor} commented`;
     case 'note':
       return `${actor} added a staff note`;
+    case 'escalated': {
+      // Written by the escalation timer, so there's no actor; comment says why nobody new got it
+      const head = `Escalated to level ${event.level ?? '?'} (not acknowledged in time)`;
+      if (event.comment) return `${head}. ${event.comment}.`;
+      const from = nameOf(event.from);
+      return from ? `${head}: reassigned from ${from} to ${nameOf(event.to)}` : `${head}: assigned to ${nameOf(event.to)}`;
+    }
     default:
       return `${actor} updated this incident`;
   }

@@ -11,6 +11,7 @@ import IncidentTimelinePage from './pages/IncidentTimelinePage';
 import NewTicketPage from './pages/NewTicketPage';
 import AdminPage from './pages/admin/AdminPage';
 import SchedulePage from './pages/schedule/SchedulePage';
+import EscalationPage from './pages/escalation/EscalationPage';
 
 function App() {
   return (
@@ -33,6 +34,9 @@ function App() {
             {/* On-call calendar, one page per team. Leads (and admins) can add and change shifts. */}
             <Route path="/schedule" element={<SchedulePage />} />
             <Route path="/schedule/:team" element={<SchedulePage />} />
+            {/* Escalation policy per team: who gets an unacknowledged ticket, and when. Leads (and admins) edit it. */}
+            <Route path="/escalation" element={<EscalationPage />} />
+            <Route path="/escalation/:team" element={<EscalationPage />} />
           </Route>
 
           {/* Admins only */}

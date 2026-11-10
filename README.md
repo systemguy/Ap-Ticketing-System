@@ -72,3 +72,25 @@ Full details, file by file, are in [`frontend/README.md`](frontend/README.md#spr
 - Make an admin with `node --env-file=.env scripts/make-admin.js someone@example.com` in `backend/`.
 
 Details are in [`frontend/README.md`](frontend/README.md#sprint-3-schedule-reassignment-admin-portal-for-the-group).
+
+## Sprint 4 – Escalation policy
+
+Each team has an **escalation policy**: a chain of up to 5 levels. Each level says who an
+unacknowledged ticket goes to (whoever is on call, the team lead, or one specific person such
+as building management) and how long it can wait first, with a separate time frame for each
+severity (Low, Moderate, High, Critical).
+
+- **Page:** `/escalation/:team` (navbar → *Escalation*). Everyone on the team sees the chain,
+  who each level reaches right now, and every ticket still waiting to be acknowledged with its
+  next escalation time and who it will go to. The team lead or an admin changes it.
+- **Rules:** level 1's clock starts when the ticket is filed; each later level's clock starts at the
+  previous escalation. Only Open (unacknowledged) tickets escalate. Acknowledging stops it;
+  reopening starts again at level 1. Teams with no saved policy don't escalate.
+- **How it runs:** the backend checks every minute (`startEscalationTimer` in
+  `backend/app/helpers/escalation.js`), reassigns due tickets and writes an `escalated` entry on
+  the ticket's timeline. If nobody can take a level (e.g. a gap in the schedule), the timeline says
+  why and the ticket moves on to the next level. Set `ESCALATION_INTERVAL_MS=0` in `.env` to turn
+  the timer off.
+- **API:** `GET /escalation/:team`, `PUT /escalation/:team` with
+  `{ enabled, levels: [{ assignTo: 'on-call' | 'lead' | 'person', person?, after: { low, moderate, high, critical } }] }`
+  (minutes). Model: `backend/app/models/escalationPolicy.js`.

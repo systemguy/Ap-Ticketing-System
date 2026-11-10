@@ -159,6 +159,11 @@ router.put('/update/:ticketId', async(req, res) =>{
 		const now = new Date()
 		const update = {status: to}
 		if(STATUS_DATES[to]) update[STATUS_DATES[to]] = now
+		// A reopened ticket starts its escalation policy again from level 1
+		if(to === 'Open'){
+			update.escalationLevel = 0
+			update.escalationClockAt = now
+		}
 		const events = [{type: 'status_change', actor: req.accountId, from, to, createdAt: now}]
 		// Acknowledging a ticket assigns it to the solver who acknowledged it
 		if(to === 'Acknowledged' && ticket.assignedTo?.toString() !== req.accountId){

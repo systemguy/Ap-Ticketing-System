@@ -32,6 +32,7 @@ VITE_API_URL=http://localhost:3000
 | `/incidents/:id/timeline` | One ticket: details, photo, status buttons, timeline, comments | Reporter + ticket's team |
 | `/incidents` | Team Queue: open tickets for my teams (home team + teams I lead) + ones I filed | Staff and admins |
 | `/schedule/:team` | On-call calendar for one team; team leads add, change and remove shifts | Staff and admins |
+| `/escalation/:team` | Escalation policy: who gets an unacknowledged ticket at each level and after how long per severity; open tickets and when they escalate next. Team leads and admins edit it | Staff and admins |
 | `/admin` | Admin portal: teams, leads, who's on call, accounts | Admins |
 
 "Staff" means the user's `team` in their login token is not `"user"`. A **team lead** is
@@ -47,18 +48,19 @@ still decides what data each user can read or change.
 - `GET /tickets/:id`, `PUT /tickets/update/:id`, `POST /tickets/:id/comments`
 - `PUT /tickets/:id/assign` (team lead or admin; only to whoever is on call now)
 - `GET /shifts`, `GET /shifts/on-call`, `POST /shifts`, `PATCH /shifts/:id`, `DELETE /shifts/:id`, `GET /teams`, `GET /users?role=staff`
+- `GET /escalation/:team`, `PUT /escalation/:team` (team lead or admin)
 - `GET /admin/overview`, `GET /admin/users`, `PATCH /admin/teams/:id/lead`, `PATCH /admin/users/:id/active`
 
 ## Project layout
 
 ```
 src/
-  api/          client.js (fetch wrapper), tickets.js, profile.js, schedule.js, admin.js
+  api/          client.js (fetch wrapper), tickets.js, profile.js, schedule.js, admin.js, escalation.js
   components/   NavBar, TicketForm, ProtectedRoute, RoleRoute, Modal
   context/      SessionContext (who is logged in: id, team, role, photo, teams they lead)
   data/         services, severity, shifts (the 3 daily shifts + Central-time date helpers)
   pages/        Home, Auth, Services, Incidents (Team Queue), NewTicketPage,
-                ProfilePage, IncidentTimelinePage, schedule/, admin/
+                ProfilePage, IncidentTimelinePage, schedule/, escalation/, admin/
   utils/        incidents.js (sorting, columns, dates), images.js (photo compression)
 ```
 
