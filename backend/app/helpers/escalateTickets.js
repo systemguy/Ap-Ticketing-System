@@ -87,12 +87,15 @@ async function escalateStaleTickets(){
         //     //const assignedTo = team.lead
         //    // console.log(assignedTo)
             // 1. Check if a responder exists at index `escLevel`
+            let assignedTo = null
             if (Array.isArray(team.responders) && team.responders[team.escLevel]) {
-                return team.responders[escLevel];
+                assignedTo =  team.responders[escLevel];
+            }else{
+                assignedTo = team.lead ?? null;
             }
 
             // 2. If escLevel goes beyond the array length, fall back to team lead
-            return team.lead ?? null;
+             
 
             const resolver = await User.findById(assignedTo)
             if(!ticket.assignedTo?.equals(assignedTo)){
@@ -103,10 +106,23 @@ async function escalateStaleTickets(){
                     from: 'pavila2@stedwards.edu',
                     to: resolverEmail,
                     subject: 'Ticket Escalated and assigned to you',
-                    text: 'That was easy!'
+                    text: `Ticket ${ticket._id} named ${ticket.title} was assigned to you`
                     };  
 
+                const reporterMailOptions = {
+                    from: 'pavila2@stedwards.edu',
+                    to: resolverEmail,
+                    subject: 'Ticket Escalated and assigned',
+                    text: `your ticket ${ticket._id} named ${ticket.title} was stale, to prevent your problem to remains unresolved, we escalated it to a more capacitaded responder`
+                    };  
                 transporter.sendMail(mailOptions, function(error, info){
+                        if (error) {
+                            console.log(error);
+                        } else {
+                            console.log('Email sent: ' + info.response);
+                        }
+                }); 
+                transporter.sendMail(reporterMailOptions, function(error, info){
                         if (error) {
                             console.log(error);
                         } else {
