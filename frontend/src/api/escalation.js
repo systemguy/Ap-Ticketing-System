@@ -4,9 +4,10 @@ import { apiFetch } from './client';
 // Everything the page needs for one team:
 // { team, canEdit, policy: { enabled, levels, updatedAt, updatedBy } | null, defaults, limits, candidates, tickets }
 // Each level: { assignTo: 'on-call'|'lead'|'person', person, after: { low, moderate, high, critical }, now, nobody }
-export const getPolicy = (team) => apiFetch(`/escalation/${encodeURIComponent(team)}`);
+export const getPolicy = (team) => apiFetch(`/teams/escalation/${encodeURIComponent(team)}`);
 
 // Team lead or admin. A bad policy throws with every problem in err.list.
 // levels: [{ assignTo, person?, after: { low, moderate, high, critical } }] (minutes)
 export const savePolicy = (team, { enabled, levels }) =>
-  apiFetch(`/escalation/${encodeURIComponent(team)}`, { method: 'PUT', body: JSON.stringify({ enabled, levels }) });
+  apiFetch(`/teams/escalation/${encodeURIComponent(team)}`, { method: 'PUT', body: JSON.stringify({ enabled, levels }) });
+

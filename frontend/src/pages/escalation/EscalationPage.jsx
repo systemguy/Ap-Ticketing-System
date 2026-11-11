@@ -10,13 +10,13 @@ import '../schedule/Schedule.css';
 import '../admin/Admin.css';
 import './Escalation.css';
 
-// Severity 1-4 and the key its time frame is stored under (matches backend/app/helpers/escalation.js)
-const COLUMNS = SEVERITIES.map((s) => ({ ...s, key: ['low', 'moderate', 'high', 'critical'][s.value - 1] }));
+// Reordered so Critical (Sev 4) is first in the list, down to Low (Sev 1)
+const COLUMNS = [...SEVERITIES]
+  .reverse()
+  .map((s) => ({ ...s, key: ['low', 'moderate', 'high', 'critical'][s.value - 1] }));
 
-// Time frames offered in the dropdowns, in minutes
 const PRESETS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440, 2880, 4320, 7200, 10080];
 
-// 90 -> "1 h 30 min", 1440 -> "1 day"
 export function formatDuration(minutes) {
   const m = Number(minutes) || 0;
   const days = Math.floor(m / 1440);
@@ -29,34 +29,28 @@ export function formatDuration(minutes) {
   return parts.join(' ') || '0 min';
 }
 
-// "in 12 min", "in 3 h 5 min", "overdue"
 function untilText(at, now) {
   const minutes = Math.ceil((new Date(at) - now) / 60000);
   return minutes <= 0 ? 'any minute now' : `in ${formatDuration(minutes)}`;
 }
 
-// A level from the server -> the editable form, and back
-const toDraft = (l) => ({
-  target: l.assignTo === 'person' ? `person:${l.person?._id ?? ''}` : l.assignTo,
-  after: { ...l.after },
+// Convert Level 1 escTime into severity multipliers
+const computeAfter = (baseTime) => ({
+  low: baseTime * 4,
+  moderate: baseTime * 3,
+  high: baseTime * 2,
+  critical: baseTime * 1,
 });
-const fromDraft = (d) => {
-  const [assignTo, person] = d.target.split(':');
-  return { assignTo, ...(assignTo === 'person' ? { person } : {}), after: d.after };
-};
 
-// One page per team: its escalation chain (who gets an unacknowledged ticket at each level,
-// and after how long for each severity) and the open tickets with when they escalate next.
-// Everyone on the team can see it; the team lead and admins can change it.
 export default function EscalationPage() {
   const { team: teamParam } = useParams();
   const navigate = useNavigate();
   const { isAdmin, leads, myTeams, loadingUser, logout } = useSession();
 
   const [allTeams, setAllTeams] = useState([]);
-  const [data, setData] = useState(null); // what GET /escalation/:team returned
+  const [data, setData] = useState(null);
   const [onCall, setOnCall] = useState(null);
-  const [levels, setLevels] = useState([]); // drafts: [{ target, after }]
+  const [levels, setLevels] = useState([]);
   const [enabled, setEnabled] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -75,23 +69,35 @@ export default function EscalationPage() {
     listTeams().then(setAllTeams).catch((err) => handleAuth(err));
   }, [handleAuth]);
 
-  // Countdowns tick every 30 seconds
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30 * 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Admins see every team; others their home team plus the teams they lead
   const visible = useMemo(() => {
     const names = isAdmin ? allTeams.map((t) => t.name) : myTeams;
     return names.map((n) => allTeams.find((t) => t.name === n) || { name: n, lead: null });
   }, [isAdmin, allTeams, myTeams]);
   const team = visible.find((t) => t.name.toLowerCase() === String(teamParam || '').toLowerCase());
 
-  // Puts the saved policy (or the suggested default) into the form
+  // Converts backend team data into UI levels
   const resetForm = useCallback((d) => {
-    setLevels((d.policy?.levels?.length ? d.policy.levels : d.defaults).map(toDraft));
-    setEnabled(d.policy ? d.policy.enabled : true);
+    const baseTime = d.team?.escTime ?? 5;
+    const responders = d.team?.responders || [];
+    const after = computeAfter(baseTime);
+
+    const draftLevels = responders.map((r) => ({
+      target: `person:${r._id || r}`,
+      after,
+    }));
+
+    // Fallback level to lead if lead exists or no responders configured
+    if (d.team?.lead || draftLevels.length === 0) {
+      draftLevels.push({ target: 'lead', after });
+    }
+
+    setLevels(draftLevels);
+    setEnabled(true);
   }, []);
 
   const load = useCallback(async ({ keepForm = false } = {}) => {
@@ -105,7 +111,7 @@ export default function EscalationPage() {
     } catch (err) {
       if (!handleAuth(err)) setLoadError(err);
     }
-  }, [team?.name, handleAuth, resetForm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [team?.name, handleAuth, resetForm]);
 
   useEffect(() => {
     setData(null);
@@ -114,14 +120,18 @@ export default function EscalationPage() {
     load();
   }, [load]);
 
-  const saved = useMemo(() => (data ? (data.policy?.levels?.length ? data.policy.levels : data.defaults).map(toDraft) : []), [data]);
-  const dirty = Boolean(data) && (
-    !data.policy
-    || JSON.stringify(levels) !== JSON.stringify(saved)
-    || enabled !== data.policy.enabled
-  );
+  const saved = useMemo(() => {
+    if (!data?.team) return [];
+    const baseTime = data.team.escTime ?? 5;
+    const responders = data.team.responders || [];
+    const after = computeAfter(baseTime);
+    const res = responders.map((r) => ({ target: `person:${r._id || r}`, after }));
+    if (data.team.lead || res.length === 0) res.push({ target: 'lead', after });
+    return res;
+  }, [data]);
 
-  // Refresh the ticket list every minute without touching unsaved edits
+  const dirty = Boolean(data) && JSON.stringify(levels) !== JSON.stringify(saved);
+
   useEffect(() => {
     const t = setInterval(() => load({ keepForm: true }), 60 * 1000);
     return () => clearInterval(t);
@@ -142,10 +152,8 @@ export default function EscalationPage() {
   const canEdit = Boolean(data?.canEdit);
   const lead = data?.team?.lead;
   const candidates = data?.candidates || [];
-  const personName = (id) => candidates.find((c) => String(c._id) === String(id))?.name
-    || data?.policy?.levels?.find((l) => String(l.person?._id) === String(id))?.person?.name;
+  const personName = (id) => candidates.find((c) => String(c._id) === String(id))?.name;
 
-  // Who a draft level reaches right now
   function reachNow(target) {
     if (target === 'on-call') {
       return onCall?.responder
@@ -164,7 +172,6 @@ export default function EscalationPage() {
     return personName(target.split(':')[1]) || 'A specific person';
   };
 
-  // "whoever is on call after 10 min, then the team lead (Morgan) 20 min later."
   function summary(key) {
     const who = (t) => (t === 'on-call' ? 'whoever is on call' : t === 'lead' ? `the team lead${lead ? ` (${lead.name})` : ''}` : targetLabel(t));
     const text = levels
@@ -173,14 +180,23 @@ export default function EscalationPage() {
     return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
   }
 
-  function update(i, change) {
-    setLevels((ls) => ls.map((l, j) => (j === i ? { ...l, ...change, after: { ...l.after, ...(change.after || {}) } } : l)));
+  // Updates Level 1 time and automatically recalculates down the chain
+  function updateTime(newCriticalMinutes) {
+    const baseTime = Number(newCriticalMinutes);
+    const newAfter = computeAfter(baseTime);
+    setLevels((ls) => ls.map((l) => ({ ...l, after: newAfter })));
   }
+
+  function updateTarget(i, target) {
+    setLevels((ls) => ls.map((l, j) => (j === i ? { ...l, target } : l)));
+  }
+
   function addLevel() {
-    const last = levels[levels.length - 1];
-    const after = last ? { ...last.after } : { low: 480, moderate: 120, high: 30, critical: 10 };
-    setLevels((ls) => [...ls, { target: lead && last?.target !== 'lead' ? 'lead' : 'on-call', after }]);
+    const baseTime = levels[0]?.after?.critical ?? 5;
+    const after = computeAfter(baseTime);
+    setLevels((ls) => [...ls, { target: lead ? 'lead' : 'on-call', after }]);
   }
+
   function move(i, by) {
     setLevels((ls) => {
       const next = [...ls];
@@ -194,22 +210,29 @@ export default function EscalationPage() {
     setSaving(true);
     setSaveError(null);
     setFlash(null);
+
     try {
-      const res = await savePolicy(team.name, { enabled, levels: levels.map(fromDraft) });
-      setData(res);
-      resetForm(res);
-      setFlash({ ok: true, text: res.message || 'Escalation policy saved.' });
+      // 1. Extract base escTime from level 1 critical
+      const escTime = levels[0]?.after?.critical ?? 5;
+
+      // 2. Extract responders list (only person targets, in order)
+      const responders = levels
+        .filter((l) => l.target.startsWith('person:'))
+        .map((l) => l.target.split(':')[1]);
+
+      // 3. Post simple backend format matching PATCH controller
+      const res = await savePolicy(team.name, { escTime, responders });
+      
+      // Update data and reset form state
+      setData((prev) => ({ ...prev, team: res.team }));
+      resetForm({ team: res.team, candidates: data?.candidates });
+      setFlash({ ok: true, text: res.message || 'Escalation settings updated successfully.' });
     } catch (err) {
       if (!handleAuth(err)) setSaveError(err);
     } finally {
       setSaving(false);
     }
   }
-
-  const status = !data ? null
-    : !data.policy ? { tone: 'none', text: 'No escalation policy yet. Tickets stay with whoever has them until someone acknowledges them.' }
-      : !data.policy.enabled ? { tone: 'none', text: 'Escalation is turned off for this team.' }
-        : { tone: 'on', text: `Escalation is on: ${data.policy.levels.length} level${data.policy.levels.length === 1 ? '' : 's'}.` };
 
   const tickets = data?.tickets || [];
 
@@ -221,7 +244,7 @@ export default function EscalationPage() {
           <h1>{team.name}</h1>
           <p className="lede">
             When a ticket isn’t acknowledged in time, it moves to the next level and is assigned to that
-            level’s person. Critical tickets can move faster than low ones.
+            level’s person. Critical tickets move faster than low ones.
           </p>
         </div>
       </div>
@@ -242,15 +265,10 @@ export default function EscalationPage() {
 
       {data && (
         <>
-          <section className={`oncall-banner ${status.tone === 'on' ? '' : 'oncall-none'}`} aria-live="polite">
+          <section className="oncall-banner" aria-live="polite">
             <span className="oncall-dot" aria-hidden="true" />
             <p>
-              <b>{status.text}</b>
-              {data.policy?.updatedAt && (
-                <span className="muted esc-updated">
-                  {' '}Last changed {formatTime(data.policy.updatedAt, 'date')}{data.policy.updatedBy ? ` by ${data.policy.updatedBy}` : ''}.
-                </span>
-              )}
+              <b>Escalation is on: {levels.length} level{levels.length === 1 ? '' : 's'}.</b>
             </p>
           </section>
 
@@ -259,20 +277,10 @@ export default function EscalationPage() {
           <form onSubmit={save} className="admin-section">
             <div className="section-head">
               <h2>Escalation levels</h2>
-              {canEdit && (
-                <label className="checkbox esc-toggle">
-                  <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-                  Escalate this team’s tickets automatically
-                </label>
-              )}
             </div>
 
-            {!data.policy && canEdit && (
-              <p className="admin-note">This is a suggested starting point. Nothing escalates until you save it.</p>
-            )}
-
             <div className="table-wrap">
-              <table className={`esc-table ${enabled ? '' : 'is-off'}`}>
+              <table className="esc-table">
                 <thead>
                   <tr>
                     <th scope="col">Level</th>
@@ -300,22 +308,14 @@ export default function EscalationPage() {
                             <select
                               className="select-compact esc-who"
                               value={l.target}
-                              onChange={(e) => update(i, { target: e.target.value })}
+                              onChange={(e) => updateTarget(i, e.target.value)}
                               aria-label={`Level ${i + 1}: who gets the ticket`}
                             >
                               <option value="on-call">Whoever is on call</option>
                               <option value="lead">Team lead{lead ? ` (${lead.name})` : ''}</option>
-                              {l.target === 'person:' && <option value="person:">Choose a person…</option>}
-                              {[['team', `On ${team.name}`], ['staff', 'Other teams'], ['admin', 'Building management (admins)']].map(([g, label]) => {
-                                const people = candidates.filter((c) => c.group === g);
-                                return people.length ? (
-                                  <optgroup key={g} label={label}>
-                                    {people.map((p) => (
-                                      <option key={p._id} value={`person:${p._id}`}>{p.name}{g === 'staff' && p.team ? ` (${p.team})` : ''}</option>
-                                    ))}
-                                  </optgroup>
-                                ) : null;
-                              })}
+                              {candidates.map((p) => (
+                                <option key={p._id} value={`person:${p._id}`}>{p.name}</option>
+                              ))}
                             </select>
                           ) : (
                             <span className="esc-who-text">{targetLabel(l.target)}</span>
@@ -328,18 +328,23 @@ export default function EscalationPage() {
                         </td>
                         {COLUMNS.map((c) => (
                           <td key={c.key} className="esc-time">
-                            {canEdit ? (
+                            {canEdit && i === 0 ? (
                               <select
                                 className="select-compact"
                                 value={l.after[c.key]}
-                                onChange={(e) => update(i, { after: { [c.key]: Number(e.target.value) } })}
+                                onChange={(e) => {
+                                  const mult = c.key === 'low' ? 4 : c.key === 'moderate' ? 3 : c.key === 'high' ? 2 : 1;
+                                  updateTime(Number(e.target.value) / mult);
+                                }}
                                 aria-label={`Level ${i + 1}, ${c.label} tickets: time frame`}
                               >
                                 {[...new Set([...PRESETS, l.after[c.key]])].sort((a, b) => a - b).map((m) => (
                                   <option key={m} value={m}>{formatDuration(m)}</option>
                                 ))}
                               </select>
-                            ) : formatDuration(l.after[c.key])}
+                            ) : (
+                              formatDuration(l.after[c.key])
+                            )}
                           </td>
                         ))}
                         {canEdit && (
@@ -357,15 +362,13 @@ export default function EscalationPage() {
             </div>
 
             <p className="muted esc-foot">
-              Level 1’s time frame counts from when the ticket was filed; each later level counts from the
-              previous escalation. Acknowledging a ticket stops escalation, and reopening it starts again at level 1.
-              {!canEdit && ` Only ${lead ? lead.name : 'the team lead'} or an admin can change this policy.`}
+              Level 1’s time frame is customizable; subsequent level timing is automatically calculated based on severity multipliers.
             </p>
 
             <div className="esc-summary card">
               <h3 className="card-title">In plain words</h3>
               <ul>
-                {[...COLUMNS].reverse().map((c) => (
+                {COLUMNS.map((c) => (
                   <li key={c.key}>
                     <b>{c.label}:</b> {summary(c.key)}
                   </li>
@@ -378,10 +381,8 @@ export default function EscalationPage() {
             {canEdit && (
               <div className="esc-buttons">
                 <button type="submit" className="btn" disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save policy'}</button>
-                {levels.length < (data.limits?.levels ?? 5) && (
-                  <button type="button" className="btn btn-outline" onClick={addLevel} disabled={saving}>+ Add level</button>
-                )}
-                {dirty && data.policy && (
+                <button type="button" className="btn btn-outline" onClick={addLevel} disabled={saving}>+ Add level</button>
+                {dirty && (
                   <button type="button" className="link-button" onClick={() => { resetForm(data); setSaveError(null); }} disabled={saving}>
                     Discard changes
                   </button>
@@ -420,15 +421,9 @@ export default function EscalationPage() {
                               <>
                                 <b>{untilText(t.next.dueAt, now)}</b>{' '}
                                 <span className="muted">({formatTime(t.next.dueAt, true)})</span>
-                                <div className="muted">
-                                  Level {t.next.level} →{' '}
-                                  {t.next.to ? t.next.to : <span className="esc-nobody">no one available ({t.next.nobody})</span>}
-                                </div>
                               </>
-                            ) : t.finished ? (
-                              <span className="pill pill-warn">Went through every level</span>
                             ) : (
-                              <span className="muted">Escalation is off</span>
+                              <span className="muted">Pending</span>
                             )}
                           </td>
                         </tr>

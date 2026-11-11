@@ -1,7 +1,7 @@
 // Central API wrapper. If your auth setup differs (cookie sessions, a
 // different localStorage key, a different base URL), change it HERE only.
 // Set VITE_API_URL in .env.local to use another backend (e.g. http://localhost:3000).
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://159.65.229.254:3000';
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000' //'http://159.65.229.254:3000';
 export const TOKEN_KEY = 'token';
 
 export function getToken() {
