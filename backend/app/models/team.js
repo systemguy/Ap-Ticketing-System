@@ -22,8 +22,24 @@ const TeamScheme = new mongoose.Schema({
 		required: false,
 		select: true,
 	},
+	escTime:{
+		type: Number,
+		default: 5,
+		select: true,
+		required: false,
+	},
+	responders:[{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }]
 }, { timestamps: true })
 
-const team = mongoose.model('Team', TeamScheme)
+// TeamScheme.pre('save', async function(){
+//     if(this.escTime == undefined){
+//         this.escTime = 5
+//     }
+// })
+
+const team = mongoose.models.team || mongoose.model('team', TeamScheme)
 
 module.exports = team
