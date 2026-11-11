@@ -4,6 +4,7 @@ const Ticket = require('../models/tickets')
 const user = require('../models/user')
 const Team = require('../models/team')
 const Service = require('../models/services')
+const Shift = require('../models/shift')
 const authMiddleware =  require('../middleware/authMiddleWare')
 const {
 	NEXT_STATUSES, STATUS_DATES, ACTIVE_STATUSES,
@@ -55,19 +56,38 @@ router.get('/', async (req, res)=>{
 router.post('/create', async(req, res)=>{
 	try{
 		const {title, description, service, severity, unit, userComment, type} = req.body
+		
+		const date =  new Date()
+		const today = date.toISOString() //.split('T')[0];
+		const hour = date.getHours()
+		//console.log(today, hour)
 		const serviceExists = typeof service === 'string' && await Service.findOne({name:service})
+		
 		if(!serviceExists){
 			return res.status(400).json({error:"invalid service"})
 		}
 		if(!isValidSeverity(severity)){
 			return res.status(400).json({error:"invalid severity"})
 		}
+		const team = await Team.findOne({ $or: [{ teamId: serviceExists.teamId }, { name: serviceExists.teamId }] })
+		console.log(team)
 		const userPosted = req.accountId
 		const createdAt = Date.now()
 		const status = "Open"
 		// The first timeline entry records who filed the ticket
 		const events = [{type: 'created', actor: userPosted, createdAt}]
-		const ticket = await Ticket.create({userPosted, title, description, service, unit, severity ,type,status, createdAt, userComment, resolved: false, events})
+		const assignedTo  = await Shift.findOne({ team: team._id, start: { $lte: date }, end :{$gte: date}})
+		console.log(assignedTo)
+
+		const assignedResponder = assignedTo?.responder ?? null 
+		const escTime = team?.escTime ?? 5
+		console.log(escTime)
+		const acknowledgedAt = assignedTo ? Date.now() :null
+		console.log(assignedResponder)
+
+	
+		const ticket = await Ticket.create({userPosted, title, description, service, unit, severity ,type,status, createdAt, escTime, userComment, resolved: false, events, assignedTo: assignedResponder, acknowledgedAt})
+		
 		
 		return res.send({ticket})
 	}catch(err){
@@ -159,11 +179,6 @@ router.put('/update/:ticketId', async(req, res) =>{
 		const now = new Date()
 		const update = {status: to}
 		if(STATUS_DATES[to]) update[STATUS_DATES[to]] = now
-		// A reopened ticket starts its escalation policy again from level 1
-		if(to === 'Open'){
-			update.escalationLevel = 0
-			update.escalationClockAt = now
-		}
 		const events = [{type: 'status_change', actor: req.accountId, from, to, createdAt: now}]
 		// Acknowledging a ticket assigns it to the solver who acknowledged it
 		if(to === 'Acknowledged' && ticket.assignedTo?.toString() !== req.accountId){
