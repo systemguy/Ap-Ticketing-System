@@ -22,6 +22,11 @@ export const getTicket = (id) => apiFetch(`/tickets/${id}`);
 export const changeStatus = (id, status) =>
   apiFetch(`/tickets/update/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
 
+// Team lead of the ticket's team (or an admin): give an active ticket to whoever is on call now.
+// The backend refuses anyone else and records the change on the timeline.
+export const reassignTicket = (id, responderId) =>
+  apiFetch(`/tickets/${id}/assign`, { method: 'PUT', body: JSON.stringify({ responderId }) });
+
 // Saved as a comment for the reporter, or a note for the ticket's team
 export const addComment = (id, text) =>
   apiFetch(`/tickets/${id}/comments`, { method: 'POST', body: JSON.stringify({ text }) });

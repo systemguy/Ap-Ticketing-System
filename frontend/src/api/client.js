@@ -1,7 +1,7 @@
 // Central API wrapper. If your auth setup differs (cookie sessions, a
 // different localStorage key, a different base URL), change it HERE only.
 // Set VITE_API_URL in .env.local to use another backend (e.g. http://localhost:3000).
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://159.65.229.254:3000';
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000' //'http://159.65.229.254:3000';
 export const TOKEN_KEY = 'token';
 
 export function getToken() {
@@ -41,13 +41,17 @@ export async function apiFetch(path, options = {}) {
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let list = null;
     try {
-      message = errorText(await res.json(), message);
+      const body = await res.json();
+      message = errorText(body, message);
+      if (Array.isArray(body?.error)) list = body.error; // e.g. every problem with a schedule
     } catch {
       /* non-JSON error body */
     }
     const err = new Error(message);
     err.status = res.status;
+    err.list = list || [message];
     throw err;
   }
 
