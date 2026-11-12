@@ -76,9 +76,17 @@ function startHeartbeat() {
 	return setInterval(() => run('beat'), 30 * 1000)
 }
 
-// For GET /health
-function health() {
-	const db = mongoose.connection.readyState === 1
+// For GET /health. Actually pings the database, because Mongoose's connection flag can stay
+// "disconnected" after a network blip even though queries work again.
+async function health() {
+	let db = false
+	try {
+		await Promise.race([
+			mongoose.connection.db.admin().command({ ping: 1 }),
+			new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+		])
+		db = true
+	} catch { /* db stays false */ }
 	return {
 		status: db ? 'ok' : 'degraded',
 		database: db ? 'connected' : 'disconnected',
@@ -203,7 +211,7 @@ async function summary(windowKey = '24h') {
 	return {
 		window,
 		generatedAt: now,
-		health: health(),
+		health: await health(),
 		targets: { uptimePercent: TARGETS.uptimePercent, analyticsRefreshSeconds: TARGETS.analyticsRefreshSeconds },
 		uptime: up,
 		speed,

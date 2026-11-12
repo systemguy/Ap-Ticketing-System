@@ -11,8 +11,8 @@ app.use(express.json({limit: '4mb'}))
 app.use(express.urlencoded({extended: false}))
 
 // Is the server up? No login needed
-app.get('/health', (req, res) => {
-	const h = health()
+app.get('/health', async (req, res) => {
+	const h = await health()
 	res.status(h.status === 'ok' ? 200 : 503).send(h)
 })
 
