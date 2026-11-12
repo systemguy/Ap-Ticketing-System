@@ -70,16 +70,19 @@ function responderProblems(shifts, now) {
 
 // Why someone can't go on a team's shifts, or null if they can. They must be active staff
 // whose home team it is (user.team holds the team's name), or the team's lead. Reporters never can.
+// A team's lead id as a string, whether `lead` is populated or a plain id ('' when there's none)
+const leadId = (team) => String(team?.lead?._id ?? team?.lead ?? '')
+
 function ineligibleReason(user, team) {
 	if (!user) return 'That person no longer has an account'
 	if (user.active === false) return `${user.name}'s account is deactivated`
-	if (String(team.lead) === String(user._id) || user.team === team.name) return null
+	if ((leadId(team) && leadId(team) === String(user._id)) || user.team === team.name) return null
 	if (!user.team || user.team === 'user') return `${user.name} is a reporter and can't be put on a shift`
 	return `${user.name} isn't on ${team.name} and doesn't lead it`
 }
 
 // Only a team's lead changes its schedule. A future admin role is allowed too.
-const canManage = (user, team) => user?.role === 'admin' || String(team.lead) === String(user?._id)
+const canManage = (user, team) => user?.role === 'admin' || (Boolean(leadId(team)) && leadId(team) === String(user?._id))
 
 // Teams whose schedule a user can see: their home team and any team they lead (admins see all).
 // Empty for reporters.

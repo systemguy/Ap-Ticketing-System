@@ -7,9 +7,14 @@ const Service = require('../models/services')
 const authMiddleware =  require('../middleware/authMiddleWare')
 const {
 	NEXT_STATUSES, STATUS_DATES, ACTIVE_STATUSES,
-	isTicketOwner, isValidSeverity, ticketAccess, teamsLedBy,
+	isTicketOwner, isValidSeverity, ticketAccess, teamsLedBy, ticketTeam,
 } = require('../helpers/tickets')
 const { whoIsOnCall } = require('../helpers/shifts')
+const { notifyAssigned, notifyReporter } = require('../helpers/notify')
+
+// Ticket photos come from TicketForm.jsx as a compressed image data URL
+const PHOTO_FORMAT = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/
+const PHOTO_MAX = 3 * 1024 * 1024
 
 const router = express.Router()
 router.use(authMiddleware)
@@ -26,14 +31,17 @@ const NO_RESPONDER = {
 	'responder-inactive': (team) => `The person on call for ${team} has a deactivated account`,
 }
 
+const QUEUE_ORDER = {escalationExhaustedAt: -1, severity: -1, createdAt: 1}
+
 // Tickets you filed, plus every ticket for your home team and any team you lead.
-// Admins see every ticket.
+// Admins see every ticket. Tickets that reached the final escalation step come first, then the
+// most severe, then the oldest.
 router.get('/', async (req, res)=>{
 	try{
 	const {accountId, team} = req
 	const me = await user.findById(accountId).select('role')
 	if(me?.role === 'admin'){
-		const tickets = await Ticket.find().select('-events').populate('userPosted', 'name email').populate('assignedTo', 'name email')
+		const tickets = await Ticket.find().select('-events').sort(QUEUE_ORDER).populate('userPosted', 'name email').populate('assignedTo', 'name email')
 		return res.status(200).json({ tickets })
 	}
 	const myTeams = [...new Set([team, ...await teamsLedBy(accountId)])].filter(t => t && t !== 'user')
@@ -42,7 +50,7 @@ router.get('/', async (req, res)=>{
 	const tickets = await Ticket.find({
 					$or:[{userPosted: accountId},
 					 {service: { $in: serviceNames }} ]
-					}).select('-events').populate('userPosted', 'name email').populate('assignedTo', 'name email');
+					}).select('-events').sort(QUEUE_ORDER).populate('userPosted', 'name email').populate('assignedTo', 'name email');
 	return res.status(200).json({ tickets });
 	}
 	catch(err){
@@ -52,9 +60,13 @@ router.get('/', async (req, res)=>{
 
 })
 
+// File a ticket. It goes straight to whoever is on call for the service's team (Sprint 3
+// auto-assignment), and they're notified in-app and by email. If nobody is on call, or no team
+// owns the service, it stays unassigned and the timeline says why; the team's escalation
+// policy still applies from the moment it was filed.
 router.post('/create', async(req, res)=>{
 	try{
-		const {title, description, service, severity, unit, userComment, type} = req.body
+		const {title, description, service, severity, unit, userComment, type, photo} = req.body
 		const serviceExists = typeof service === 'string' && await Service.findOne({name:service})
 		if(!serviceExists){
 			return res.status(400).json({error:"invalid service"})
@@ -62,14 +74,41 @@ router.post('/create', async(req, res)=>{
 		if(!isValidSeverity(severity)){
 			return res.status(400).json({error:"invalid severity"})
 		}
+		if(photo !== undefined && photo !== '' && (typeof photo !== 'string' || photo.length > PHOTO_MAX || !PHOTO_FORMAT.test(photo))){
+			return res.status(400).json({error: 'Photo must be a PNG, JPEG, WebP or GIF image under 3 MB'})
+		}
 		const userPosted = req.accountId
-		const createdAt = Date.now()
+		const createdAt = new Date()
 		const status = "Open"
 		// The first timeline entry records who filed the ticket
 		const events = [{type: 'created', actor: userPosted, createdAt}]
-		const ticket = await Ticket.create({userPosted, title, description, service, unit, severity ,type,status, createdAt, userComment, resolved: false, events})
-		
-		return res.send({ticket})
+
+		// Auto-assign to whoever is on call for the team that owns this service
+		const team = await ticketTeam({service})
+		let assignee = null
+		let reason = null
+		if(!team){
+			reason = `No team owns ${service} yet`
+		}else{
+			const result = await whoIsOnCall(team._id, createdAt)
+			if(result.responder) assignee = result.responder
+			else reason = NO_RESPONDER[result.reason](team.name)
+		}
+		events.push(assignee
+			? {type: 'auto_assigned', to: assignee.name, createdAt}
+			: {type: 'auto_assigned', comment: reason, createdAt})
+
+		const ticket = await Ticket.create({
+			userPosted, title, description, service, unit, severity, type: type || service, status, createdAt, userComment,
+			resolved: false, events, assignedTo: assignee?._id, photo: photo || undefined,
+		})
+		if(assignee) await notifyAssigned(ticket, assignee._id, {how: 'on-call'})
+
+		const {photo: _photo, ...plain} = ticket.toObject()
+		return res.send({
+			ticket: plain,
+			assignment: assignee ? {to: {_id: assignee._id, name: assignee.name}, team: team.name} : {to: null, team: team?.name ?? null, reason},
+		})
 	}catch(err){
 		if(err.name === 'ValidationError'){
 			return res.status(400).json({error: Object.values(err.errors).map(e => e.message)})
@@ -125,10 +164,43 @@ router.put('/edit/:ticketId', async(req, res) =>{
 		if(!fields.length){
 			return res.send(ticket)
 		}
+		const now = new Date()
 		// type mirrors service because the model still requires it
-		const updated = await Ticket.findByIdAndUpdate(ticket._id,
-			{$set: {...changes, type: service}, $push: {events: {type: 'edited', actor: req.accountId, fields}}},
+		const set = {...changes, type: service}
+		const update = {$set: set, $push: {events: {$each: [{type: 'edited', actor: req.accountId, fields, createdAt: now}]}}}
+		// Moving the ticket to a service another team handles hands it to that team: it goes to
+		// whoever is on call there, and its escalation starts over under that team's policy.
+		// Once a team has acknowledged it, the reporter can't move it away from them.
+		const [oldTeam, newTeam] = await Promise.all([ticketTeam(ticket), ticketTeam({service})])
+		let assignee = null
+		if(String(oldTeam?._id ?? '') !== String(newTeam?._id ?? '')){
+			if(ticket.status !== 'Open'){
+				return res.status(409).send({error: `${oldTeam?.name ?? 'The team'} is already working on this ticket, so its service can't be moved to another team. Add a comment instead.`})
+			}
+			let reason = null
+			if(!newTeam){
+				reason = `No team owns ${service} yet`
+			}else{
+				const result = await whoIsOnCall(newTeam._id, now)
+				if(result.responder) assignee = result.responder
+				else reason = NO_RESPONDER[result.reason](newTeam.name)
+			}
+			Object.assign(set, {escalationLevel: 0, escalationClockAt: now})
+			update.$unset = {escalationExhaustedAt: 1, ...(assignee ? {} : {assignedTo: 1})}
+			if(assignee) set.assignedTo = assignee._id
+			update.$push.events.$each.push(assignee
+				? {type: 'auto_assigned', to: assignee.name, createdAt: now}
+				: {type: 'auto_assigned', comment: reason, createdAt: now})
+		}
+		// Matching on status and level keeps this from racing the escalation timer or an acknowledge
+		const updated = await Ticket.findOneAndUpdate(
+			{_id: ticket._id, status: ticket.status, escalationLevel: ticket.escalationLevel ? ticket.escalationLevel : {$in: [0, null]}},
+			update,
 			{returnDocument: 'after'})
+		if(!updated){
+			return res.status(409).send({error: 'Someone else just changed this ticket. Reload and try again.'})
+		}
+		if(assignee) await notifyAssigned(updated, assignee._id, {how: 'on-call'})
 		return res.send(updated)
 	}catch(err){
 		console.log(err)
@@ -158,29 +230,43 @@ router.put('/update/:ticketId', async(req, res) =>{
 		}
 		const now = new Date()
 		const update = {status: to}
+		const unset = {}
 		if(STATUS_DATES[to]) update[STATUS_DATES[to]] = now
+		// `resolved` mirrors the status: true once it's Resolved or Closed, false again if reopened
+		update.resolved = to === 'Resolved' || to === 'Closed'
 		// A reopened ticket starts its escalation policy again from level 1
 		if(to === 'Open'){
 			update.escalationLevel = 0
 			update.escalationClockAt = now
+			unset.escalationExhaustedAt = 1
 		}
+		// Acknowledging is taking responsibility: escalation stops, and the final-step flag goes away
+		if(to === 'Acknowledged') unset.escalationExhaustedAt = 1
+		const me = await user.findById(req.accountId).select('name')
 		const events = [{type: 'status_change', actor: req.accountId, from, to, createdAt: now}]
 		// Acknowledging a ticket assigns it to the solver who acknowledged it
 		if(to === 'Acknowledged' && ticket.assignedTo?.toString() !== req.accountId){
-			const [solver, previous] = await Promise.all([
-				user.findById(req.accountId).select('name'),
-				ticket.assignedTo ? user.findById(ticket.assignedTo).select('name') : null,
-			])
+			const previous = ticket.assignedTo ? await user.findById(ticket.assignedTo).select('name') : null
 			update.assignedTo = req.accountId
-			events.push({type: 'assignment_change', actor: req.accountId, from: previous?.name, to: solver?.name, createdAt: now})
+			events.push({type: 'assignment_change', actor: req.accountId, from: previous?.name, to: me?.name, createdAt: now})
 		}
-		// Matching on the old status makes this fail if someone else changed the ticket first
+		// Matching on the old status (and, for an Open ticket, the assignee and escalation state the
+		// timer may be changing) makes this fail if someone or something else changed it first
+		const match = {_id: ticket._id, status: from}
+		if(from === 'Open'){
+			match.assignedTo = ticket.assignedTo ?? null
+			match.escalationLevel = ticket.escalationLevel ? ticket.escalationLevel : {$in: [0, null]}
+		}
 		const updated = await Ticket.findOneAndUpdate(
-			{_id: ticket._id, status: from},
-			{$set: update, $push: {events: {$each: events}}},
+			match,
+			{$set: update, ...(Object.keys(unset).length ? {$unset: unset} : {}), $push: {events: {$each: events}}},
 			{returnDocument: 'after'})
 		if(!updated){
 			return res.status(409).send({error: 'Someone else just changed this ticket. Reload to see its current status.'})
+		}
+		// The reporter hears about acknowledgement and resolution, nothing in between
+		if((to === 'Acknowledged' || to === 'Resolved') && !isTicketOwner(req.accountId, updated)){
+			await notifyReporter(updated, updated.userPosted, to === 'Acknowledged' ? 'acknowledged' : 'resolved', me?.name)
 		}
 		return res.send({ticket: updated, message: `Status changed from ${from} to ${to}`})
 	}catch(err){
@@ -194,6 +280,7 @@ router.put('/update/:ticketId', async(req, res) =>{
 router.get('/:ticketId', async(req, res) =>{
 	try{
 		const ticket = await Ticket.findById(req.params.ticketId)
+			.select('+photo')
 			.populate('userPosted', 'name email')
 			.populate('assignedTo', 'name email')
 			.populate('events.actor', 'name')
@@ -310,14 +397,24 @@ router.put('/:ticketId/assign', async(req, res) =>{
 		}
 		const me = await user.findById(req.accountId).select('name')
 		const now = new Date()
+		const set = {assignedTo: target._id}
+		const update = {$set: set, $push: {events: {type: 'assignment_change', actor: req.accountId, from: previous?.name, to: target.name, createdAt: now}}}
+		// A ticket that reached the final escalation step leaves it once the lead gives it to someone,
+		// and its escalation policy starts over for the new person (it still needs acknowledging)
+		if(ticket.escalationExhaustedAt){
+			set.escalationLevel = 0
+			set.escalationClockAt = now
+			update.$unset = {escalationExhaustedAt: 1}
+		}
 		// Matching on the old assignee makes this fail if someone else reassigned it first
 		const updated = await Ticket.findOneAndUpdate(
 			{_id: ticket._id, assignedTo: previous?._id ?? null, status: ticket.status},
-			{$set: {assignedTo: target._id}, $push: {events: {type: 'assignment_change', actor: req.accountId, from: previous?.name, to: target.name, createdAt: now}}},
+			update,
 			{returnDocument: 'after'})
 		if(!updated){
 			return res.status(409).send({error: 'Someone else just changed this ticket. Reload and try again.'})
 		}
+		await notifyAssigned(updated, target._id, {how: 'lead', by: me?.name})
 		return res.send({
 			message: previous ? `Reassigned from ${previous.name} to ${target.name}` : `Assigned to ${target.name}`,
 			assignedTo: {_id: target._id, name: target.name},
