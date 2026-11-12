@@ -110,13 +110,16 @@ function Incidents() {
   }
 
   // Tickets without a severity (created before Sprint 2) only show under "All".
+  // Tickets that reached the final escalation step always come first, whatever the filters.
   const visibleIncidents = useMemo(() => incidents.filter((i) => {
+    if (i.escalationExhaustedAt && relationOf(i).team) return true;
     if ((Number(i.severity) || 0) < minSeverity) return false;
     const rel = relationOf(i);
     if (view === 'team') return rel.team;
     if (view === 'mine') return rel.filed;
     return true;
-  }), [incidents, minSeverity, view, relationOf]);
+  }).sort((a, b) => Boolean(b.escalationExhaustedAt) - Boolean(a.escalationExhaustedAt)), [incidents, minSeverity, view, relationOf]);
+  const finalCount = visibleIncidents.filter((i) => i.escalationExhaustedAt).length;
 
   return (
     <main className="page page-wide">
@@ -150,6 +153,12 @@ function Incidents() {
         </p>
       )}
       {loadError && <p className="flash flash-error" role="alert">{loadError}</p>}
+      {finalCount > 0 && (
+        <div className="final-banner" role="alert">
+          <b>{finalCount === 1 ? '1 incident' : `${finalCount} incidents`} went through every escalation level without anyone acknowledging {finalCount === 1 ? 'it' : 'them'}.</b>
+          {' '}{finalCount === 1 ? 'It is' : 'They are'} unassigned and pinned to the top. Anyone on the team can take one: open it and press Acknowledge.
+        </div>
+      )}
 
       <div className="list-toolbar">
         <div className="segmented" role="group" aria-label="Which tickets">
@@ -209,7 +218,7 @@ function Incidents() {
               // Older tickets stored a copy of the title as their description; don't show it twice
               const showDescription = incident.description && incident.description !== incident.title;
               return (
-                <tr key={incident._id}>
+                <tr key={incident._id} className={incident.escalationExhaustedAt ? 'row-final' : ''}>
                   <td className="mono">{incident._id ? incident._id.slice(-6).toUpperCase() : incident.id}</td>
                   <td>
                     <div><Link to={timeline}>{incident.title}</Link></div>
@@ -219,6 +228,7 @@ function Incidents() {
                       </div>
                     )}
                     <div className="tag-row">
+                      {incident.escalationExhaustedAt && <span className="tag tag-final">Final escalation · needs an owner now</span>}
                       {rel.filed && <span className="tag">Filed by you</span>}
                       {rel.team && <span className="tag tag-team">{myTeams.length > 1 || isAdmin ? rel.teamName || 'Your team' : 'Your team'}</span>}
                       {rel.filed && !rel.team && <span className="tag tag-muted">Handled by another team</span>}
@@ -241,8 +251,9 @@ function Incidents() {
                   </td>
                   <td>
                     <span className={`status status-${statusLabel.toLowerCase()}`}>{formatStatus(statusLabel)}</span>
-                    <div className="muted assignee">
+                    <div className={`assignee ${incident.escalationExhaustedAt ? 'assignee-final' : 'muted'}`}>
                       {incident.assignedTo ? `→ ${incident.assignedTo.name || 'Assigned'}` : 'Unassigned'}
+                      {!incident.assignedTo && incident.escalationLevel > 0 && !incident.escalationExhaustedAt ? ` (level ${incident.escalationLevel})` : ''}
                     </div>
                   </td>
                   <td className="actions-cell">

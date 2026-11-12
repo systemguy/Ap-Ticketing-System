@@ -73,24 +73,44 @@ Full details, file by file, are in [`frontend/README.md`](frontend/README.md#spr
 
 Details are in [`frontend/README.md`](frontend/README.md#sprint-3-schedule-reassignment-admin-portal-for-the-group).
 
-## Sprint 4 – Escalation policy
+## Sprint 4 – Escalation policy, notifications, uptime and speed (`sprint4-final`)
 
-Each team has an **escalation policy**: a chain of up to 5 levels. Each level says who an
-unacknowledged ticket goes to (whoever is on call, the team lead, or one specific person such
-as building management) and how long it can wait first, with a separate time frame for each
-severity (Low, Moderate, High, Critical).
+**Decision: Tier 1 is the first person a ticket is escalated *to*.** A new ticket is assigned to
+whoever is on call for the service's team (Sprint 3 auto-assignment). If nobody acknowledges it, it moves
+to level 1, then level 2, and so on. After the last level comes the **final step**: the ticket is
+unassigned, flagged (`escalationExhaustedAt`), pinned in red to the top of the team queue for every
+solver on the team, and the team lead and every admin (facility administration) are notified.
 
-- **Page:** `/escalation/:team` (navbar → *Escalation*). Everyone on the team sees the chain,
-  who each level reaches right now, and every ticket still waiting to be acknowledged with its
-  next escalation time and who it will go to. The team lead or an admin changes it.
-- **Rules:** level 1's clock starts when the ticket is filed; each later level's clock starts at the
-  previous escalation. Only Open (unacknowledged) tickets escalate. Acknowledging stops it;
-  reopening starts again at level 1. Teams with no saved policy don't escalate.
-- **How it runs:** the backend checks every minute (`startEscalationTimer` in
-  `backend/app/helpers/escalation.js`), reassigns due tickets and writes an `escalated` entry on
-  the ticket's timeline. If nobody can take a level (e.g. a gap in the schedule), the timeline says
-  why and the ticket moves on to the next level. Set `ESCALATION_INTERVAL_MS=0` in `.env` to turn
-  the timer off.
-- **API:** `GET /escalation/:team`, `PUT /escalation/:team` with
-  `{ enabled, levels: [{ assignTo: 'on-call' | 'lead' | 'person', person?, after: { low, moderate, high, critical } }] }`
-  (minutes). Model: `backend/app/models/escalationPolicy.js`.
+The professor's HVAC example in our system: filed → on-call solver; level 1 Bob after 5 min; level 2
+team lead Amy 5 min later; final step 10 min later.
+
+- **Policy** (`/escalation/:team`, team lead or admin edits): up to 5 levels, each pointing to a role
+  (*on call*, *team lead*) or a specific person on that team (or an admin), with minutes per severity,
+  plus the final step's minutes. Validation rejects an empty policy, zero, negative or fractional minutes,
+  unknown or deactivated users, people from another team, and time frames where a more severe ticket waits
+  longer (Critical must be strictly faster than Low).
+- **Copy policy:** a lead of several teams can copy one team's policy into another's form. Role levels
+  carry over as roles, and specific people who aren't on the target team are left out and listed.
+- **Timer:** server-side, every 30 seconds (`ESCALATION_INTERVAL_MS`), so it works with every browser closed.
+  Only Open tickets escalate. A note doesn't stop it; acknowledging does. Reopening restarts at level 1.
+  After downtime, it jumps straight to the right level, records the skipped levels on the timeline,
+  and notifies only the person who has the ticket now. Saving or re-enabling a policy counts older
+  tickets from that moment (`enabledAt`).
+- **Notifications** (`helpers/notify.js`): in-app (bell in the navbar, `/notifications`) **and** email
+  (nodemailer, SMTP settings in `.env`):
+  - **Solvers**, whenever a ticket is assigned to them: on call when it's filed, reassigned by the lead,
+    or escalated. Each notification has the incident id, service, severity and the action needed.
+  - **Reporters**, only when their ticket is acknowledged and when it's resolved.
+- **Requirement change: uptime and speed** (`/performance`, admins and team leads):
+  - `GET /health`, with no login needed.
+  - A heartbeat every 30 seconds; minutes without one count as downtime. Uptime is compared against a 99% target.
+  - Server-side and in-browser timing (p50/p95, compared against targets) of log in, incident
+    submission, incident resolution and the analytics refresh.
+  - Time to acknowledge and time to resolve, by severity.
+- **Sprint 3 fixes:** auto-assign on create; `/register/team` and `/register/services` are admin-only;
+  deactivated accounts lose access immediately; the ticket photo is saved; `resolved` is kept up to date;
+  `/uploads` is served; moving an Open ticket to another team's service re-routes it to that team.
+
+`.env` for the backend: `MONGODB_URI`, `JWT_SECRET`, `APP_URL`, `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, optional `ESCALATION_INTERVAL_MS`. Without SMTP
+settings, notifications still appear in the app and each email is marked "skipped".

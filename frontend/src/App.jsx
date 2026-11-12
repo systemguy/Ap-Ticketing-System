@@ -12,6 +12,8 @@ import NewTicketPage from './pages/NewTicketPage';
 import AdminPage from './pages/admin/AdminPage';
 import SchedulePage from './pages/schedule/SchedulePage';
 import EscalationPage from './pages/escalation/EscalationPage';
+import NotificationsPage from './pages/NotificationsPage';
+import PerformancePage from './pages/PerformancePage';
 
 function App() {
   return (
@@ -27,6 +29,9 @@ function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/tickets/new" element={<NewTicketPage />} />
           <Route path="/incidents/:id/timeline" element={<IncidentTimelinePage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          {/* Uptime and speed (Sprint 4 requirement change). The page itself tells non-leads it's for leads and admins. */}
+          <Route path="/performance" element={<PerformancePage />} />
 
           {/* Staff and admins only. Residents see their incidents on their profile. */}
           <Route element={<RoleRoute allow="queue" />}>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { getPolicy, savePolicy } from '../../api/escalation';
+import { copyPolicyFrom, getPolicy, savePolicy } from '../../api/escalation';
 import { getOnCall, listTeams } from '../../api/schedule';
 import { useSession } from '../../context/SessionContext';
 import { ErrorList } from '../../components/Modal';
@@ -57,7 +57,10 @@ export default function EscalationPage() {
   const [data, setData] = useState(null); // what GET /escalation/:team returned
   const [onCall, setOnCall] = useState(null);
   const [levels, setLevels] = useState([]); // drafts: [{ target, after }]
+  const [finalAfter, setFinalAfter] = useState(null); // how long the last level gets before the final step
   const [enabled, setEnabled] = useState(true);
+  const [copyFrom, setCopyFrom] = useState('');
+  const [copyNote, setCopyNote] = useState(null); // { source, dropped }
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [flash, setFlash] = useState(null);
@@ -91,7 +94,9 @@ export default function EscalationPage() {
   // Puts the saved policy (or the suggested default) into the form
   const resetForm = useCallback((d) => {
     setLevels((d.policy?.levels?.length ? d.policy.levels : d.defaults).map(toDraft));
+    setFinalAfter({ ...(d.policy?.finalAfter || d.defaultFinal) });
     setEnabled(d.policy ? d.policy.enabled : true);
+    setCopyNote(null);
   }, []);
 
   const load = useCallback(async ({ keepForm = false } = {}) => {
@@ -118,6 +123,7 @@ export default function EscalationPage() {
   const dirty = Boolean(data) && (
     !data.policy
     || JSON.stringify(levels) !== JSON.stringify(saved)
+    || JSON.stringify(finalAfter) !== JSON.stringify(data.policy.finalAfter)
     || enabled !== data.policy.enabled
   );
 
@@ -164,13 +170,29 @@ export default function EscalationPage() {
     return personName(target.split(':')[1]) || 'A specific person';
   };
 
-  // "whoever is on call after 10 min, then the team lead (Morgan) 20 min later."
+  // "Goes to whoever is on call when filed; the team lead (Morgan) after 10 min, then final 20 min later."
   function summary(key) {
     const who = (t) => (t === 'on-call' ? 'whoever is on call' : t === 'lead' ? `the team lead${lead ? ` (${lead.name})` : ''}` : targetLabel(t));
     const text = levels
       .map((l, i) => `${who(l.target)} ${i === 0 ? 'after' : ''} ${formatDuration(l.after[key])}${i ? ' later' : ''}`.replace(/\s+/g, ' '))
       .join(', then ');
-    return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+    const final = finalAfter?.[key] ? `; if still nobody acknowledges it ${formatDuration(finalAfter[key])} later, it becomes unassigned and pinned for the whole team, and the team lead and admins are notified` : '';
+    return `First the on-call solver has it. Then ${text}${final}.`;
+  }
+
+  async function copyPolicy() {
+    if (!copyFrom) return;
+    setSaveError(null);
+    setFlash(null);
+    try {
+      const res = await copyPolicyFrom(team.name, copyFrom);
+      setLevels(res.levels.map(toDraft));
+      setFinalAfter({ ...res.finalAfter });
+      setEnabled(res.enabled);
+      setCopyNote({ source: res.source, dropped: res.dropped });
+    } catch (err) {
+      if (!handleAuth(err)) setSaveError(err);
+    }
   }
 
   function update(i, change) {
@@ -195,7 +217,7 @@ export default function EscalationPage() {
     setSaveError(null);
     setFlash(null);
     try {
-      const res = await savePolicy(team.name, { enabled, levels: levels.map(fromDraft) });
+      const res = await savePolicy(team.name, { enabled, levels: levels.map(fromDraft), finalAfter });
       setData(res);
       resetForm(res);
       setFlash({ ok: true, text: res.message || 'Escalation policy saved.' });
@@ -220,8 +242,10 @@ export default function EscalationPage() {
           <p className="eyebrow">Escalation policy</p>
           <h1>{team.name}</h1>
           <p className="lede">
-            When a ticket isn’t acknowledged in time, it moves to the next level and is assigned to that
-            level’s person. Critical tickets can move faster than low ones.
+            A new ticket goes to whoever is on call. If it isn’t acknowledged in time, it moves to level 1,
+            then level 2, and so on (level 1 is the first person it’s escalated <i>to</i>). After the last
+            level comes the final step: it’s unassigned, pinned for the whole team, and the team lead and
+            admins are notified. More severe tickets move faster.
           </p>
         </div>
       </div>
@@ -306,12 +330,12 @@ export default function EscalationPage() {
                               <option value="on-call">Whoever is on call</option>
                               <option value="lead">Team lead{lead ? ` (${lead.name})` : ''}</option>
                               {l.target === 'person:' && <option value="person:">Choose a person…</option>}
-                              {[['team', `On ${team.name}`], ['staff', 'Other teams'], ['admin', 'Building management (admins)']].map(([g, label]) => {
+                              {[['team', `On ${team.name}`], ['admin', 'Building management (admins)']].map(([g, label]) => {
                                 const people = candidates.filter((c) => c.group === g);
                                 return people.length ? (
                                   <optgroup key={g} label={label}>
                                     {people.map((p) => (
-                                      <option key={p._id} value={`person:${p._id}`}>{p.name}{g === 'staff' && p.team ? ` (${p.team})` : ''}</option>
+                                      <option key={p._id} value={`person:${p._id}`}>{p.name}</option>
                                     ))}
                                   </optgroup>
                                 ) : null;
@@ -352,13 +376,43 @@ export default function EscalationPage() {
                       </tr>
                     );
                   })}
+                  {finalAfter && (
+                    <tr className="esc-final-row">
+                      <th scope="row" className="esc-level">
+                        <span className="esc-level-num esc-level-final">!</span>
+                        <span className="esc-level-when">after level {levels.length}</span>
+                      </th>
+                      <td colSpan={2}>
+                        <b>Final step</b>
+                        <div className="muted">Unassigned and pinned to the top of the team queue; the team lead and admins are notified.</div>
+                      </td>
+                      {COLUMNS.map((c) => (
+                        <td key={c.key} className="esc-time">
+                          {canEdit ? (
+                            <select
+                              className="select-compact"
+                              value={finalAfter[c.key]}
+                              onChange={(e) => setFinalAfter((f) => ({ ...f, [c.key]: Number(e.target.value) }))}
+                              aria-label={`Final step, ${c.label} tickets: time frame`}
+                            >
+                              {[...new Set([...PRESETS, finalAfter[c.key]])].sort((a, b) => a - b).map((m) => (
+                                <option key={m} value={m}>{formatDuration(m)}</option>
+                              ))}
+                            </select>
+                          ) : formatDuration(finalAfter[c.key])}
+                        </td>
+                      ))}
+                      {canEdit && <td />}
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
 
             <p className="muted esc-foot">
-              Level 1’s time frame counts from when the ticket was filed; each later level counts from the
-              previous escalation. Acknowledging a ticket stops escalation, and reopening it starts again at level 1.
+              Level 1’s time frame counts from when the ticket was filed; each later step counts from the
+              previous one. Only acknowledging a ticket stops escalation (a note doesn’t), and reopening it starts
+              again at level 1. A more severe ticket can never wait longer than a less severe one.
               {!canEdit && ` Only ${lead ? lead.name : 'the team lead'} or an admin can change this policy.`}
             </p>
 
@@ -373,7 +427,30 @@ export default function EscalationPage() {
               </ul>
             </div>
 
+            {copyNote && (
+              <div className="flash flash-ok" role="status">
+                Copied {copyNote.source}’s policy into the form. Review it, then save.
+                {copyNote.dropped.length > 0 && (
+                  <ul className="esc-dropped">
+                    {copyNote.dropped.map((d) => <li key={d}>{d}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
+
             <ErrorList error={saveError} />
+
+            {canEdit && data.copySources?.length > 0 && (
+              <div className="esc-copy">
+                <label htmlFor="esc-copy-from">Copy the policy of another team you lead</label>
+                <select id="esc-copy-from" className="select-compact" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
+                  <option value="">Choose a team…</option>
+                  {data.copySources.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <button type="button" className="btn btn-outline btn-small" onClick={copyPolicy} disabled={!copyFrom || saving}>Copy into form</button>
+                <span className="muted">People who aren’t on {team.name} are left out.</span>
+              </div>
+            )}
 
             {canEdit && (
               <div className="esc-buttons">
@@ -407,16 +484,24 @@ export default function EscalationPage() {
                     {tickets.map((t) => {
                       const sev = COLUMNS.find((c) => c.value === Number(t.severity));
                       return (
-                        <tr key={t._id}>
+                        <tr key={t._id} className={t.finished ? 'row-final' : ''}>
                           <td>
                             <Link to={`/incidents/${t._id}/timeline`} className="person-name">{t.title}</Link>
                             <div className="muted">Unit {t.unit} · filed {formatTime(t.createdAt, 'date')}</div>
                           </td>
                           <td>{sev && <><span className={`sev-dot sev-${sev.key}`} aria-hidden="true" />{sev.label}</>}</td>
-                          <td>{t.assignedTo ? t.assignedTo.name : <span className="pill pill-warn">Unassigned</span>}</td>
+                          <td>{t.assignedTo ? t.assignedTo.name : <span className={`pill ${t.finished ? 'pill-bad' : 'pill-warn'}`}>Unassigned</span>}</td>
                           <td>{t.level ? `Level ${t.level}` : <span className="muted">Not yet</span>}</td>
                           <td>
-                            {t.next ? (
+                            {t.finished ? (
+                              <span className="pill pill-bad">Final step reached {formatTime(t.finishedAt, true)}: needs an owner now</span>
+                            ) : t.next?.final ? (
+                              <>
+                                <b>{untilText(t.next.dueAt, now)}</b>{' '}
+                                <span className="muted">({formatTime(t.next.dueAt, true)})</span>
+                                <div className="muted">Final step → unassigned, lead and admins notified</div>
+                              </>
+                            ) : t.next ? (
                               <>
                                 <b>{untilText(t.next.dueAt, now)}</b>{' '}
                                 <span className="muted">({formatTime(t.next.dueAt, true)})</span>
@@ -425,8 +510,6 @@ export default function EscalationPage() {
                                   {t.next.to ? t.next.to : <span className="esc-nobody">no one available ({t.next.nobody})</span>}
                                 </div>
                               </>
-                            ) : t.finished ? (
-                              <span className="pill pill-warn">Went through every level</span>
                             ) : (
                               <span className="muted">Escalation is off</span>
                             )}

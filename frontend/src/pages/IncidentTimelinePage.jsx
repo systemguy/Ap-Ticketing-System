@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { addComment, changeStatus, getTicket, reassignTicket } from '../api/tickets';
+import { timed } from '../api/metrics';
 import { useSession } from '../context/SessionContext';
 import Modal from '../components/Modal';
 import { severityOf } from '../data/severity';
@@ -64,12 +65,22 @@ function describe(event) {
       return `${actor} commented`;
     case 'note':
       return `${actor} added a staff note`;
+    case 'auto_assigned':
+      // Written when the ticket was filed: it goes to whoever is on call for the service's team
+      return event.to
+        ? `Assigned automatically to ${nameOf(event.to)}, who was on call`
+        : `Not assigned automatically: ${event.comment || 'nobody was on call'}`;
     case 'escalated': {
       // Written by the escalation timer, so there's no actor; comment says why nobody new got it
       const head = `Escalated to level ${event.level ?? '?'} (not acknowledged in time)`;
-      if (event.comment) return `${head}. ${event.comment}.`;
+      const skipped = event.skipped ? ' Passed straight through while catching up, so they were not notified.' : '';
+      if (event.comment) return `${head}. ${event.comment}.${skipped}`;
       const from = nameOf(event.from);
-      return from ? `${head}: reassigned from ${from} to ${nameOf(event.to)}` : `${head}: assigned to ${nameOf(event.to)}`;
+      return (from ? `${head}: reassigned from ${from} to ${nameOf(event.to)}.` : `${head}: assigned to ${nameOf(event.to)}.`) + skipped;
+    }
+    case 'final_escalation': {
+      const from = nameOf(event.from);
+      return `FINAL ESCALATION: nobody acknowledged it through every level of the policy${from ? `, so it was taken from ${from}` : ''}. It is now unassigned and pinned to the top of the team queue; the team lead and admins were notified.`;
     }
     default:
       return `${actor} updated this incident`;
@@ -194,7 +205,8 @@ export default function IncidentTimelinePage() {
     setBusy(true);
     setFlash(null);
     try {
-      const res = await changeStatus(id, status);
+      // Resolving is one of the operations the Performance page times
+      const res = status === 'Resolved' ? await timed('resolve', () => changeStatus(id, status)) : await changeStatus(id, status);
       let text = res?.message ? `${res.message}.` : `Status changed to ${formatStatus(status)}.`;
       if (reason) {
         try {
@@ -303,6 +315,15 @@ export default function IncidentTimelinePage() {
         <p className={`flash ${flash.ok ? 'flash-ok' : 'flash-error'}`} role={flash.ok ? 'status' : 'alert'}>
           {flash.text}
         </p>
+      )}
+
+      {/* Went through every escalation level without being acknowledged */}
+      {ticket.escalationExhaustedAt && ticket.status === 'Open' && data.role === 'solver' && (
+        <div className="final-banner" role="alert">
+          <b>Final escalation.</b> Nobody acknowledged this incident through every level of the escalation
+          policy, so it is unassigned and pinned to the top of the team queue. Anyone on the team can take it:
+          press <b>Acknowledge</b> below.
+        </div>
       )}
 
       {/* Team lead of this ticket's team: hand it to whoever is on call right now */}

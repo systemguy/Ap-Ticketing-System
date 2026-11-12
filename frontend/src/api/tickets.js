@@ -5,8 +5,11 @@ export const listTickets = () =>
   apiFetch('/tickets').then((data) => (Array.isArray(data) ? data : data?.tickets || []));
 
 // payload: { title, description, unit, service, severity, type, photo? }
+// Returns { ticket, assignment } where assignment is { to: { _id, name }, team } when the on-call
+// solver got it, or { to: null, team, reason } when nobody could be assigned automatically.
 export const createTicket = (payload) =>
-  apiFetch('/tickets/create', { method: 'POST', body: JSON.stringify(payload) }).then((data) => data?.ticket);
+  apiFetch('/tickets/create', { method: 'POST', body: JSON.stringify(payload) })
+    .then((data) => ({ ticket: data?.ticket, assignment: data?.assignment ?? null }));
 
 // Reporter only
 export const editTicket = (id, payload) =>
