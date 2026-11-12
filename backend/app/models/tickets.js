@@ -1,17 +1,21 @@
-const { Timestamp } = require('mongodb')
 const mongoose = require('../../database')
-const bcrypt = require('bcryptjs')
 
+
+// Timeline entries the system adds on its own (no person did them)
+const SYSTEM_EVENTS = ['auto_assigned', 'escalated', 'final_escalation']
 
 // One timeline entry. Only the backend writes these, and nobody can edit them.
 const EventSchema = new mongoose.Schema({
-	// created, status_change, assignment_change, edited, comment (reporter) or note (solver)
+	// created, status_change, assignment_change, edited, comment (reporter), note (solver),
+	// plus system ones: auto_assigned (to on call), escalated, final_escalation
 	type: { type: String, required: true },
-	actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+	actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: function () { return !SYSTEM_EVENTS.includes(this.type) } },
 	from: String, // previous status, or previous assignee's name
 	to: String, // new status, or new assignee's name
 	fields: { type: [String], default: undefined }, // edited: which details changed
-	comment: String, // comment or note text
+	level: Number, // escalated: the level the ticket moved to (1 is the first escalation)
+	skipped: Boolean, // escalated: skipped while catching up, so nobody was notified
+	comment: String, // comment or note text; for escalated, why nobody new got the ticket
 	createdAt: { type: Date, default: Date.now },
 })
 
@@ -110,6 +114,33 @@ const TicketScheme= new mongoose.Schema({
 		required: false,
 		select: true
 	},
+	// Escalation: how many levels of the team's policy this ticket has gone through, and when
+	// the current level's clock started (empty means it started when the ticket was filed).
+	// Both reset when the ticket is reopened.
+	escalationLevel:{
+		type: Number,
+		default: 0,
+		select: true
+	},
+	escalationClockAt:{
+		type: Date,
+		required: false,
+		select: true
+	},
+	// Set when the ticket reaches the final escalation step (unassigned and pinned).
+	// Cleared when someone acknowledges or reopens it.
+	escalationExhaustedAt:{
+		type: Date,
+		required: false,
+		select: true
+	},
+	// Optional photo from the reporter. Not included in ticket lists, only on the ticket page.
+	photo:{
+		type: String,
+		required: false,
+		select: false,
+		maxlength: [3 * 1024 * 1024, 'Photo is too large'],
+	},
 	// The ticket's timeline: who did what and when, oldest first
 	events: [EventSchema]
 
@@ -119,3 +150,4 @@ const TicketScheme= new mongoose.Schema({
 const ticket = mongoose.model('Ticket', TicketScheme)
 
 module.exports = ticket
+module.exports.SYSTEM_EVENTS = SYSTEM_EVENTS

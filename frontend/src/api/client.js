@@ -41,13 +41,17 @@ export async function apiFetch(path, options = {}) {
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let list = null;
     try {
-      message = errorText(await res.json(), message);
+      const body = await res.json();
+      message = errorText(body, message);
+      if (Array.isArray(body?.error)) list = body.error; // e.g. every problem with a schedule
     } catch {
       /* non-JSON error body */
     }
     const err = new Error(message);
     err.status = res.status;
+    err.list = list || [message];
     throw err;
   }
 

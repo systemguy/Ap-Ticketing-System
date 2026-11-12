@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { reportTiming } from '../api/metrics';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE, TOKEN_KEY } from '../api/client';
 import { homePathFor, useSession } from '../context/SessionContext';
@@ -69,14 +70,17 @@ function Auth() {
         options = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
       }
 
+      const started = performance.now();
       const res = await fetch(url, options);
       const data = await res.json().catch(() => ({}));
+      const waited = performance.now() - started;
       if (!res.ok) {
         // data.error is a list for password rules, a string otherwise
         setMessage(data.error || data.message || 'Invalid email or password');
         return;
       }
       if (data.token) localStorage.setItem(TOKEN_KEY, data.token); // Save Bearer token
+      if (isLogin && data.token) reportTiming('login', waited); // for the Performance page
       refresh(); // tell the navbar and route guards who is logged in
       // Staff go to their team queue, residents to their own incidents
       navigate(homePathFor(data.token), { replace: true });

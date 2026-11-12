@@ -541,3 +541,100 @@ th {
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 .modal-actions .btn { margin-right: 0; }
+
+.assignee { margin-top: 6px; white-space: nowrap; }
+
+/* ---------- Sprint 4: notifications, final escalation, performance ---------- */
+
+/* Bell in the navbar with the unread count */
+.navbar .links a.nav-bell { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 6px 2px; }
+.nav-bell svg { display: block; }
+.nav-bell-label { display: none; }
+.nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+/* Notifications page */
+.notif-list { list-style: none; margin: 0 0 32px; padding: 0; display: grid; gap: 12px; }
+.notif { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.notif-unread { border-left: 4px solid var(--accent); }
+.notif-final { border-left: 4px solid var(--danger); }
+.notif-read { opacity: 0.8; }
+.notif-body {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 16px 20px;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.notif-body:hover .notif-title { color: var(--accent); }
+.notif-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.notif-time { margin-left: auto; font-size: 13px; }
+.notif-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.notif-title { font-weight: 600; color: var(--ink); }
+.notif-message { color: var(--text-soft); }
+.notif-facts { display: flex; flex-wrap: wrap; gap: 16px; font-size: 14px; }
+.notif-action { font-size: 14px; background: var(--surface-soft); padding: 8px 12px; }
+.notif-email { font-size: 12px; }
+.notif-email-failed { color: var(--danger); }
+.notif-type-final { background: var(--danger); color: #fff; border-color: var(--danger); }
+.notif-type-assigned { background: var(--accent-soft); }
+.notif-type-resolved, .notif-type-acknowledged { background: var(--success-soft); color: var(--success); }
+
+/* Incidents that went through every escalation level: impossible to miss */
+.final-banner {
+  margin: 0 0 20px;
+  padding: 14px 18px;
+  background: #f8e1db;
+  border: 1px solid var(--danger);
+  border-left: 6px solid var(--danger);
+  color: var(--danger-dark);
+}
+tr.row-final td, tr.row-final th { background: #fbe9e4; }
+tr.row-final td:first-child { box-shadow: inset 6px 0 0 var(--danger); }
+.tag.tag-final {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 600;
+  animation: final-pulse 1.6s ease-in-out infinite;
+}
+.assignee-final { color: var(--danger); font-weight: 600; }
+@keyframes final-pulse { 50% { opacity: 0.65; } }
+@media (prefers-reduced-motion: reduce) { .tag.tag-final { animation: none; } }
+
+/* Status pills shared by the escalation and performance pages */
+.pill-bad { background: var(--danger); color: #fff; }
+.pill-muted { background: var(--surface-soft); color: var(--muted); }
+
+/* Performance page */
+.perf .page-head { align-items: flex-end; }
+.perf-updated { margin: -8px 0 24px; font-size: 14px; }
+.perf-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 40px; }
+.perf-card { display: grid; gap: 6px; align-content: start; }
+.perf-card .eyebrow { margin: 0; }
+.perf-card p { margin: 0; }
+.perf-big { font-family: var(--serif); font-size: 40px; line-height: 1.1; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+.perf-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.perf-dot-ok { background: var(--success); }
+.perf-dot-bad { background: var(--danger); }
+.perf-final { color: var(--danger); font-weight: 600; }
+.perf-list { margin: 0 0 12px; padding-left: 20px; }

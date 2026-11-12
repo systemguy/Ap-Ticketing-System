@@ -20,18 +20,16 @@ function getReporter(incident) {
   return { name: 'Unknown', email: '' };
 }
 
-// Services handled by the logged-in solver's team, matched by team name.
-function teamServicesFor(teamName) {
-  if (!teamName) return null;
-  const key = Object.keys(departmentServices).find((d) => d.toLowerCase() === String(teamName).toLowerCase());
-  return key ? departmentServices[key] : null;
+// The team (department) that handles a service, e.g. "pipe repairs" -> "Plumbing"
+function teamOfService(service) {
+  return Object.keys(departmentServices).find((d) => departmentServices[d].includes(service)) || null;
 }
 
 // Team queue: tickets the user filed plus every open ticket for their team.
 // Residents never reach this page (see RoleRoute); they use their profile.
 function Incidents() {
   const navigate = useNavigate();
-  const { userId, user, logout } = useSession();
+  const { userId, logout, myTeams, isAdmin, leads } = useSession();
   const [incidents, setIncidents] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [editing, setEditing] = useState(null); // ticket being edited
@@ -72,16 +70,16 @@ function Incidents() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [deleteTarget]);
 
-  const teamServices = teamServicesFor(user?.teamName);
-
-  // The list only contains tickets I filed or my team's tickets, so anything I
-  // didn't file is my team's. A ticket I filed is also my team's if it's one of our services.
+  // The list only contains tickets I filed or tickets for my teams (home team and any team I
+  // lead), so anything I didn't file is my team's. A ticket I filed is also my team's if one of
+  // my teams handles its service. teamName says which team, for leads with several.
+  const myTeamsKey = myTeams.join('|');
   const relationOf = useCallback((incident) => {
     const filed = isFiledBy(incident, userId);
-    const svc = incident.service || incident.type;
-    const team = !filed || Boolean(teamServices?.includes(svc));
-    return { filed, team };
-  }, [userId, teamServices]);
+    const teamName = teamOfService(incident.service || incident.type);
+    const team = !filed || isAdmin || myTeamsKey.split('|').includes(teamName);
+    return { filed, team, teamName };
+  }, [userId, isAdmin, myTeamsKey]);
 
   async function confirmDelete() {
     if (!deleteTarget || deleting) return;
@@ -112,19 +110,24 @@ function Incidents() {
   }
 
   // Tickets without a severity (created before Sprint 2) only show under "All".
+  // Final-step tickets always show first, whatever the filters.
   const visibleIncidents = useMemo(() => incidents.filter((i) => {
+    if (i.escalationExhaustedAt && relationOf(i).team) return true;
     if ((Number(i.severity) || 0) < minSeverity) return false;
     const rel = relationOf(i);
     if (view === 'team') return rel.team;
     if (view === 'mine') return rel.filed;
     return true;
-  }), [incidents, minSeverity, view, relationOf]);
+  }).sort((a, b) => Boolean(b.escalationExhaustedAt) - Boolean(a.escalationExhaustedAt)), [incidents, minSeverity, view, relationOf]);
+  const finalCount = visibleIncidents.filter((i) => i.escalationExhaustedAt).length;
 
   return (
     <main className="page page-wide">
       <div className="page-head">
         <div>
-          <p className="eyebrow">{user?.teamName ? `${user.teamName} team` : 'Staff'}</p>
+          <p className="eyebrow">
+            {isAdmin ? 'All teams' : leads.length ? `Team lead · ${myTeams.join(', ')}` : myTeams.length ? `${myTeams[0]} team` : 'Staff'}
+          </p>
           <h1>Team Queue</h1>
           <p className="lede">Open tickets for your team, plus any you filed yourself.</p>
         </div>
@@ -150,6 +153,12 @@ function Incidents() {
         </p>
       )}
       {loadError && <p className="flash flash-error" role="alert">{loadError}</p>}
+      {finalCount > 0 && (
+        <div className="final-banner" role="alert">
+          <b>{finalCount === 1 ? '1 incident' : `${finalCount} incidents`} went through every escalation level without anyone acknowledging {finalCount === 1 ? 'it' : 'them'}.</b>
+          {' '}{finalCount === 1 ? 'It is' : 'They are'} unassigned and pinned to the top. Anyone on the team can take one: open it and press Acknowledge.
+        </div>
+      )}
 
       <div className="list-toolbar">
         <div className="segmented" role="group" aria-label="Which tickets">
@@ -209,7 +218,7 @@ function Incidents() {
               // Older tickets stored a copy of the title as their description; don't show it twice
               const showDescription = incident.description && incident.description !== incident.title;
               return (
-                <tr key={incident._id}>
+                <tr key={incident._id} className={incident.escalationExhaustedAt ? 'row-final' : ''}>
                   <td className="mono">{incident._id ? incident._id.slice(-6).toUpperCase() : incident.id}</td>
                   <td>
                     <div><Link to={timeline}>{incident.title}</Link></div>
@@ -219,8 +228,9 @@ function Incidents() {
                       </div>
                     )}
                     <div className="tag-row">
+                      {incident.escalationExhaustedAt && <span className="tag tag-final">Final escalation · needs an owner now</span>}
                       {rel.filed && <span className="tag">Filed by you</span>}
-                      {rel.team && <span className="tag tag-team">Your team</span>}
+                      {rel.team && <span className="tag tag-team">{myTeams.length > 1 || isAdmin ? rel.teamName || 'Your team' : 'Your team'}</span>}
                       {rel.filed && !rel.team && <span className="tag tag-muted">Handled by another team</span>}
                     </div>
                   </td>
@@ -241,6 +251,10 @@ function Incidents() {
                   </td>
                   <td>
                     <span className={`status status-${statusLabel.toLowerCase()}`}>{formatStatus(statusLabel)}</span>
+                    <div className={`assignee ${incident.escalationExhaustedAt ? 'assignee-final' : 'muted'}`}>
+                      {incident.assignedTo ? `→ ${incident.assignedTo.name || 'Assigned'}` : 'Unassigned'}
+                      {!incident.assignedTo && incident.escalationLevel > 0 && !incident.escalationExhaustedAt ? ` (level ${incident.escalationLevel})` : ''}
+                    </div>
                   </td>
                   <td className="actions-cell">
                     {/* Only show what this user is allowed to do with this ticket */}

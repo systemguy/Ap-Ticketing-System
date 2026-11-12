@@ -1,0 +1,529 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { copyPolicyFrom, getPolicy, savePolicy } from '../../api/escalation';
+import { getOnCall, listTeams } from '../../api/schedule';
+import { useSession } from '../../context/SessionContext';
+import { ErrorList } from '../../components/Modal';
+import { SEVERITIES } from '../../data/severity';
+import { formatTime } from '../../data/shifts';
+import '../schedule/Schedule.css';
+import '../admin/Admin.css';
+import './Escalation.css';
+
+// Severity 1-4 and the key its time frame is stored under (matches backend/app/helpers/escalation.js)
+const COLUMNS = SEVERITIES.map((s) => ({ ...s, key: ['low', 'moderate', 'high', 'critical'][s.value - 1] }));
+
+// Time frames offered in the dropdowns, in minutes
+const PRESETS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440, 2880, 4320, 7200, 10080];
+
+// 90 -> "1 h 30 min", 1440 -> "1 day"
+export function formatDuration(minutes) {
+  const m = Number(minutes) || 0;
+  const days = Math.floor(m / 1440);
+  const hours = Math.floor((m % 1440) / 60);
+  const mins = m % 60;
+  const parts = [];
+  if (days) parts.push(`${days} day${days === 1 ? '' : 's'}`);
+  if (hours) parts.push(`${hours} h`);
+  if (mins) parts.push(`${mins} min`);
+  return parts.join(' ') || '0 min';
+}
+
+// "in 12 min", "in 3 h 5 min", "overdue"
+function untilText(at, now) {
+  const minutes = Math.ceil((new Date(at) - now) / 60000);
+  return minutes <= 0 ? 'any minute now' : `in ${formatDuration(minutes)}`;
+}
+
+// A level from the server -> the editable form, and back
+const toDraft = (l) => ({
+  target: l.assignTo === 'person' ? `person:${l.person?._id ?? ''}` : l.assignTo,
+  after: { ...l.after },
+});
+const fromDraft = (d) => {
+  const [assignTo, person] = d.target.split(':');
+  return { assignTo, ...(assignTo === 'person' ? { person } : {}), after: d.after };
+};
+
+// One page per team: its escalation chain (who gets an unacknowledged ticket at each level,
+// and after how long for each severity) and the open tickets with when they escalate next.
+// Everyone on the team can see it; the team lead and admins can change it.
+export default function EscalationPage() {
+  const { team: teamParam } = useParams();
+  const navigate = useNavigate();
+  const { isAdmin, leads, myTeams, loadingUser, logout } = useSession();
+
+  const [allTeams, setAllTeams] = useState([]);
+  const [data, setData] = useState(null); // what GET /escalation/:team returned
+  const [onCall, setOnCall] = useState(null);
+  const [levels, setLevels] = useState([]); // drafts: [{ target, after }]
+  const [finalAfter, setFinalAfter] = useState(null); // minutes before the final step
+  const [enabled, setEnabled] = useState(true);
+  const [copyFrom, setCopyFrom] = useState('');
+  const [copyNote, setCopyNote] = useState(null); // { source, dropped }
+  const [loadError, setLoadError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const [flash, setFlash] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+
+  const handleAuth = useCallback((err) => {
+    if (err?.status !== 401) return false;
+    logout();
+    navigate('/login', { replace: true });
+    return true;
+  }, [logout, navigate]);
+
+  useEffect(() => {
+    listTeams().then(setAllTeams).catch((err) => handleAuth(err));
+  }, [handleAuth]);
+
+  // Countdowns tick every 30 seconds
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30 * 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Admins see every team; others their home team plus the teams they lead
+  const visible = useMemo(() => {
+    const names = isAdmin ? allTeams.map((t) => t.name) : myTeams;
+    return names.map((n) => allTeams.find((t) => t.name === n) || { name: n, lead: null });
+  }, [isAdmin, allTeams, myTeams]);
+  const team = visible.find((t) => t.name.toLowerCase() === String(teamParam || '').toLowerCase());
+
+  // Puts the saved policy (or the suggested default) into the form
+  const resetForm = useCallback((d) => {
+    setLevels((d.policy?.levels?.length ? d.policy.levels : d.defaults).map(toDraft));
+    setFinalAfter({ ...(d.policy?.finalAfter || d.defaultFinal) });
+    setEnabled(d.policy ? d.policy.enabled : true);
+    setCopyNote(null);
+  }, []);
+
+  const load = useCallback(async ({ keepForm = false } = {}) => {
+    if (!team) return;
+    try {
+      const [d, oc] = await Promise.all([getPolicy(team.name), getOnCall(team.name).catch(() => null)]);
+      setData(d);
+      setOnCall(oc);
+      if (!keepForm) resetForm(d);
+      setLoadError(null);
+    } catch (err) {
+      if (!handleAuth(err)) setLoadError(err);
+    }
+  }, [team?.name, handleAuth, resetForm]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setData(null);
+    setFlash(null);
+    setSaveError(null);
+    load();
+  }, [load]);
+
+  const saved = useMemo(() => (data ? (data.policy?.levels?.length ? data.policy.levels : data.defaults).map(toDraft) : []), [data]);
+  const dirty = Boolean(data) && (
+    !data.policy
+    || JSON.stringify(levels) !== JSON.stringify(saved)
+    || JSON.stringify(finalAfter) !== JSON.stringify(data.policy.finalAfter)
+    || enabled !== data.policy.enabled
+  );
+
+  // Refresh the ticket list every minute without touching unsaved edits
+  useEffect(() => {
+    const t = setInterval(() => load({ keepForm: true }), 60 * 1000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  if (loadingUser) return <main className="page"><p className="muted">Loading…</p></main>;
+  if (!visible.length && allTeams.length) {
+    return (
+      <main className="page">
+        <h1>Escalation policy</h1>
+        <p className="lede">You’re not on a team yet, so there’s no escalation policy to show.</p>
+      </main>
+    );
+  }
+  if (visible.length && !team) return <Navigate to={`/escalation/${encodeURIComponent(visible[0].name)}`} replace />;
+  if (!team) return <main className="page"><p className="muted">Loading…</p></main>;
+
+  const canEdit = Boolean(data?.canEdit);
+  const lead = data?.team?.lead;
+  const candidates = data?.candidates || [];
+  const personName = (id) => candidates.find((c) => String(c._id) === String(id))?.name
+    || data?.policy?.levels?.find((l) => String(l.person?._id) === String(id))?.person?.name;
+
+  // Who a draft level reaches right now
+  function reachNow(target) {
+    if (target === 'on-call') {
+      return onCall?.responder
+        ? { name: onCall.responder.name, note: onCall.shift ? `on call until ${formatTime(onCall.shift.end, true)}` : 'on call' }
+        : { name: null, note: 'Nobody is on call right now' };
+    }
+    if (target === 'lead') return lead ? { name: lead.name, note: 'team lead' } : { name: null, note: 'This team has no lead' };
+    const id = target.split(':')[1];
+    const name = personName(id);
+    return name ? { name, note: 'chosen person' } : { name: null, note: 'Choose a person' };
+  }
+
+  const targetLabel = (target) => {
+    if (target === 'on-call') return 'Whoever is on call';
+    if (target === 'lead') return 'Team lead';
+    return personName(target.split(':')[1]) || 'A specific person';
+  };
+
+  // The plain-English summary for one severity
+  function summary(key) {
+    const who = (t) => (t === 'on-call' ? 'whoever is on call' : t === 'lead' ? `the team lead${lead ? ` (${lead.name})` : ''}` : targetLabel(t));
+    const text = levels
+      .map((l, i) => `${who(l.target)} ${i === 0 ? 'after' : ''} ${formatDuration(l.after[key])}${i ? ' later' : ''}`.replace(/\s+/g, ' '))
+      .join(', then ');
+    const final = finalAfter?.[key] ? `; if still nobody acknowledges it ${formatDuration(finalAfter[key])} later, it becomes unassigned and pinned for the whole team, and the team lead and admins are notified` : '';
+    return `First the on-call solver has it. Then ${text}${final}.`;
+  }
+
+  async function copyPolicy() {
+    if (!copyFrom) return;
+    setSaveError(null);
+    setFlash(null);
+    try {
+      const res = await copyPolicyFrom(team.name, copyFrom);
+      setLevels(res.levels.map(toDraft));
+      setFinalAfter({ ...res.finalAfter });
+      setEnabled(res.enabled);
+      setCopyNote({ source: res.source, dropped: res.dropped });
+    } catch (err) {
+      if (!handleAuth(err)) setSaveError(err);
+    }
+  }
+
+  function update(i, change) {
+    setLevels((ls) => ls.map((l, j) => (j === i ? { ...l, ...change, after: { ...l.after, ...(change.after || {}) } } : l)));
+  }
+  function addLevel() {
+    const last = levels[levels.length - 1];
+    const after = last ? { ...last.after } : { low: 480, moderate: 120, high: 30, critical: 10 };
+    setLevels((ls) => [...ls, { target: lead && last?.target !== 'lead' ? 'lead' : 'on-call', after }]);
+  }
+  function move(i, by) {
+    setLevels((ls) => {
+      const next = [...ls];
+      [next[i], next[i + by]] = [next[i + by], next[i]];
+      return next;
+    });
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    setSaveError(null);
+    setFlash(null);
+    try {
+      const res = await savePolicy(team.name, { enabled, levels: levels.map(fromDraft), finalAfter });
+      setData(res);
+      resetForm(res);
+      setFlash({ ok: true, text: res.message || 'Escalation policy saved.' });
+    } catch (err) {
+      if (!handleAuth(err)) setSaveError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const status = !data ? null
+    : !data.policy ? { tone: 'none', text: 'No escalation policy yet. Tickets stay with whoever has them until someone acknowledges them.' }
+      : !data.policy.enabled ? { tone: 'none', text: 'Escalation is turned off for this team.' }
+        : { tone: 'on', text: `Escalation is on: ${data.policy.levels.length} level${data.policy.levels.length === 1 ? '' : 's'}.` };
+
+  const tickets = data?.tickets || [];
+
+  return (
+    <main className="page page-wide escalation">
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">Escalation policy</p>
+          <h1>{team.name}</h1>
+          <p className="lede">
+            A new ticket goes to whoever is on call. If it isn’t acknowledged in time, it moves to level 1,
+            then level 2, and so on (level 1 is the first person it’s escalated <i>to</i>). After the last
+            level comes the final step: it’s unassigned, pinned for the whole team, and the team lead and
+            admins are notified. More severe tickets move faster.
+          </p>
+        </div>
+      </div>
+
+      {visible.length > 1 && (
+        <nav className="team-tabs" aria-label="Teams">
+          {visible.map((t) => (
+            <NavLink key={t.name} to={`/escalation/${encodeURIComponent(t.name)}`}>
+              {t.name}
+              {leads.includes(t.name) && <span className="tab-badge">you lead</span>}
+            </NavLink>
+          ))}
+        </nav>
+      )}
+
+      {loadError && <ErrorList error={loadError} />}
+      {!data && !loadError && <p className="muted">Loading the escalation policy…</p>}
+
+      {data && (
+        <>
+          <section className={`oncall-banner ${status.tone === 'on' ? '' : 'oncall-none'}`} aria-live="polite">
+            <span className="oncall-dot" aria-hidden="true" />
+            <p>
+              <b>{status.text}</b>
+              {data.policy?.updatedAt && (
+                <span className="muted esc-updated">
+                  {' '}Last changed {formatTime(data.policy.updatedAt, 'date')}{data.policy.updatedBy ? ` by ${data.policy.updatedBy}` : ''}.
+                </span>
+              )}
+            </p>
+          </section>
+
+          {flash && <p className={`flash ${flash.ok ? 'flash-ok' : 'flash-error'}`} role="status">{flash.text}</p>}
+
+          <form onSubmit={save} className="admin-section">
+            <div className="section-head">
+              <h2>Escalation levels</h2>
+              {canEdit && (
+                <label className="checkbox esc-toggle">
+                  <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+                  Escalate this team’s tickets automatically
+                </label>
+              )}
+            </div>
+
+            {!data.policy && canEdit && (
+              <p className="admin-note">This is a suggested starting point. Nothing escalates until you save it.</p>
+            )}
+
+            <div className="table-wrap">
+              <table className={`esc-table ${enabled ? '' : 'is-off'}`}>
+                <thead>
+                  <tr>
+                    <th scope="col">Level</th>
+                    <th scope="col">Assigned to</th>
+                    <th scope="col">Right now that’s</th>
+                    {COLUMNS.map((c) => (
+                      <th scope="col" key={c.key} className="esc-sev-head">
+                        <span className={`sev-dot sev-${c.key}`} aria-hidden="true" />{c.label}
+                      </th>
+                    ))}
+                    {canEdit && <th scope="col"><span className="sr-only">Actions</span></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {levels.map((l, i) => {
+                    const reach = reachNow(l.target);
+                    return (
+                      <tr key={i}>
+                        <th scope="row" className="esc-level">
+                          <span className="esc-level-num">{i + 1}</span>
+                          <span className="esc-level-when">{i === 0 ? 'after filing' : `after level ${i}`}</span>
+                        </th>
+                        <td>
+                          {canEdit ? (
+                            <select
+                              className="select-compact esc-who"
+                              value={l.target}
+                              onChange={(e) => update(i, { target: e.target.value })}
+                              aria-label={`Level ${i + 1}: who gets the ticket`}
+                            >
+                              <option value="on-call">Whoever is on call</option>
+                              <option value="lead">Team lead{lead ? ` (${lead.name})` : ''}</option>
+                              {l.target === 'person:' && <option value="person:">Choose a person…</option>}
+                              {[['team', `On ${team.name}`], ['admin', 'Building management (admins)']].map(([g, label]) => {
+                                const people = candidates.filter((c) => c.group === g);
+                                return people.length ? (
+                                  <optgroup key={g} label={label}>
+                                    {people.map((p) => (
+                                      <option key={p._id} value={`person:${p._id}`}>{p.name}</option>
+                                    ))}
+                                  </optgroup>
+                                ) : null;
+                              })}
+                            </select>
+                          ) : (
+                            <span className="esc-who-text">{targetLabel(l.target)}</span>
+                          )}
+                        </td>
+                        <td className="esc-now">
+                          {reach.name
+                            ? <><span className="pill pill-ok">{reach.name}</span><div className="muted">{reach.note}</div></>
+                            : <span className="pill pill-warn">{reach.note}</span>}
+                        </td>
+                        {COLUMNS.map((c) => (
+                          <td key={c.key} className="esc-time">
+                            {canEdit ? (
+                              <select
+                                className="select-compact"
+                                value={l.after[c.key]}
+                                onChange={(e) => update(i, { after: { [c.key]: Number(e.target.value) } })}
+                                aria-label={`Level ${i + 1}, ${c.label} tickets: time frame`}
+                              >
+                                {[...new Set([...PRESETS, l.after[c.key]])].sort((a, b) => a - b).map((m) => (
+                                  <option key={m} value={m}>{formatDuration(m)}</option>
+                                ))}
+                              </select>
+                            ) : formatDuration(l.after[c.key])}
+                          </td>
+                        ))}
+                        {canEdit && (
+                          <td className="esc-actions">
+                            <button type="button" className="icon-button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move level ${i + 1} up`}>↑</button>
+                            <button type="button" className="icon-button" onClick={() => move(i, 1)} disabled={i === levels.length - 1} aria-label={`Move level ${i + 1} down`}>↓</button>
+                            <button type="button" className="icon-button icon-remove" onClick={() => setLevels((ls) => ls.filter((_, j) => j !== i))} disabled={levels.length === 1} aria-label={`Remove level ${i + 1}`} title="Remove level">✕</button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                  {finalAfter && (
+                    <tr className="esc-final-row">
+                      <th scope="row" className="esc-level">
+                        <span className="esc-level-num esc-level-final">!</span>
+                        <span className="esc-level-when">after level {levels.length}</span>
+                      </th>
+                      <td colSpan={2}>
+                        <b>Final step</b>
+                        <div className="muted">Unassigned and pinned to the top of the team queue; the team lead and admins are notified.</div>
+                      </td>
+                      {COLUMNS.map((c) => (
+                        <td key={c.key} className="esc-time">
+                          {canEdit ? (
+                            <select
+                              className="select-compact"
+                              value={finalAfter[c.key]}
+                              onChange={(e) => setFinalAfter((f) => ({ ...f, [c.key]: Number(e.target.value) }))}
+                              aria-label={`Final step, ${c.label} tickets: time frame`}
+                            >
+                              {[...new Set([...PRESETS, finalAfter[c.key]])].sort((a, b) => a - b).map((m) => (
+                                <option key={m} value={m}>{formatDuration(m)}</option>
+                              ))}
+                            </select>
+                          ) : formatDuration(finalAfter[c.key])}
+                        </td>
+                      ))}
+                      {canEdit && <td />}
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="muted esc-foot">
+              Level 1’s time frame counts from when the ticket was filed; each later step counts from the
+              previous one. Only acknowledging a ticket stops escalation (a note doesn’t), and reopening it starts
+              again at level 1. A more severe ticket can never wait longer than a less severe one.
+              {!canEdit && ` Only ${lead ? lead.name : 'the team lead'} or an admin can change this policy.`}
+            </p>
+
+            <div className="esc-summary card">
+              <h3 className="card-title">In plain words</h3>
+              <ul>
+                {[...COLUMNS].reverse().map((c) => (
+                  <li key={c.key}>
+                    <b>{c.label}:</b> {summary(c.key)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {copyNote && (
+              <div className="flash flash-ok" role="status">
+                Copied {copyNote.source}’s policy into the form. Review it, then save.
+                {copyNote.dropped.length > 0 && (
+                  <ul className="esc-dropped">
+                    {copyNote.dropped.map((d) => <li key={d}>{d}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <ErrorList error={saveError} />
+
+            {canEdit && data.copySources?.length > 0 && (
+              <div className="esc-copy">
+                <label htmlFor="esc-copy-from">Copy the policy of another team you lead</label>
+                <select id="esc-copy-from" className="select-compact" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
+                  <option value="">Choose a team…</option>
+                  {data.copySources.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <button type="button" className="btn btn-outline btn-small" onClick={copyPolicy} disabled={!copyFrom || saving}>Copy into form</button>
+                <span className="muted">People who aren’t on {team.name} are left out.</span>
+              </div>
+            )}
+
+            {canEdit && (
+              <div className="esc-buttons">
+                <button type="submit" className="btn" disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save policy'}</button>
+                {levels.length < (data.limits?.levels ?? 5) && (
+                  <button type="button" className="btn btn-outline" onClick={addLevel} disabled={saving}>+ Add level</button>
+                )}
+                {dirty && data.policy && (
+                  <button type="button" className="link-button" onClick={() => { resetForm(data); setSaveError(null); }} disabled={saving}>
+                    Discard changes
+                  </button>
+                )}
+              </div>
+            )}
+          </form>
+
+          <section className="admin-section" aria-labelledby="esc-tickets">
+            <div className="section-head">
+              <h2 id="esc-tickets">Waiting to be acknowledged</h2>
+              <Link to="/incidents" className="text-link">Open the team queue →</Link>
+            </div>
+            {tickets.length === 0 ? (
+              <p className="muted">No {team.name} tickets are waiting. Every open ticket has been acknowledged.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Ticket</th><th>Severity</th><th>Assigned to</th><th>Level</th><th>Next escalation</th></tr>
+                  </thead>
+                  <tbody>
+                    {tickets.map((t) => {
+                      const sev = COLUMNS.find((c) => c.value === Number(t.severity));
+                      return (
+                        <tr key={t._id} className={t.finished ? 'row-final' : ''}>
+                          <td>
+                            <Link to={`/incidents/${t._id}/timeline`} className="person-name">{t.title}</Link>
+                            <div className="muted">Unit {t.unit} · filed {formatTime(t.createdAt, 'date')}</div>
+                          </td>
+                          <td>{sev && <><span className={`sev-dot sev-${sev.key}`} aria-hidden="true" />{sev.label}</>}</td>
+                          <td>{t.assignedTo ? t.assignedTo.name : <span className={`pill ${t.finished ? 'pill-bad' : 'pill-warn'}`}>Unassigned</span>}</td>
+                          <td>{t.level ? `Level ${t.level}` : <span className="muted">Not yet</span>}</td>
+                          <td>
+                            {t.finished ? (
+                              <span className="pill pill-bad">Final step reached {formatTime(t.finishedAt, true)}: needs an owner now</span>
+                            ) : t.next?.final ? (
+                              <>
+                                <b>{untilText(t.next.dueAt, now)}</b>{' '}
+                                <span className="muted">({formatTime(t.next.dueAt, true)})</span>
+                                <div className="muted">Final step → unassigned, lead and admins notified</div>
+                              </>
+                            ) : t.next ? (
+                              <>
+                                <b>{untilText(t.next.dueAt, now)}</b>{' '}
+                                <span className="muted">({formatTime(t.next.dueAt, true)})</span>
+                                <div className="muted">
+                                  Level {t.next.level} →{' '}
+                                  {t.next.to ? t.next.to : <span className="esc-nobody">no one available ({t.next.nobody})</span>}
+                                </div>
+                              </>
+                            ) : (
+                              <span className="muted">Escalation is off</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+    </main>
+  );
+}

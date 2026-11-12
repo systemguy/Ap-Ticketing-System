@@ -13,6 +13,7 @@ const fs = require('fs')
 const crypto = require('crypto')
 
 const Post = require('../models/post')
+const authMiddleware = require('../middleware/authMiddleWare')
 const { publicUser } = require('../helpers/users')
 
 // Long passphrases must still include upper/lowercase, a number and a symbol (Sprint 1 rule)
@@ -117,6 +118,9 @@ router.post('/login/', async(req, res)=>{
 		const user = await User.findOne({email: email.trim().toLowerCase()}).select('+password')
 		if(!user || !await bcrypt.compare(password, user.password))
 			return res.status(400).send({error: 'Invalid email or password'})
+		// An administrator deactivated this account (soft delete)
+		if(user.active === false)
+			return res.status(403).send({error: 'This account has been deactivated. Contact building management.'})
 		return res.send({
 			user: publicUser(user),
 			token: generateToken({id: user.id, team: user.team})
@@ -126,29 +130,52 @@ router.post('/login/', async(req, res)=>{
 		return res.status(500).send({error: 'Login failed'})
 	}
 })
-router.post('/register/team', async(req, res)=>{
-	const {name} = req.body
+// Only admins can create teams and services (these used to be open to anyone)
+async function adminOnly(req, res, next){
 	try{
-                 if(await Team.findOne({name}))
-                        return res.status(400).send({error: 'Team already exists'})
-                const team = await Team.create(req.body)
-                return res.send(team)
-        }catch(err){
-                console.log(err)
-        }
+		const me = await User.findById(req.accountId).select('role active')
+		if(me?.role !== 'admin' || me.active === false)
+			return res.status(403).send({error: 'Only administrators can set up teams and services'})
+		return next()
+	}catch(err){
+		console.error('Admin check failed:', err.message)
+		return res.status(500).send({error: 'Could not check your account'})
+	}
+}
+
+// Body: { name }. Pick the lead later in the admin portal.
+router.post('/register/team', authMiddleware, adminOnly, async(req, res)=>{
+	const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
+	if(!name)
+		return res.status(400).send({error: 'Team name is required'})
+	try{
+		if(await Team.findOne({name}))
+			return res.status(400).send({error: 'Team already exists'})
+		const team = await Team.create({name})
+		return res.send(team)
+	}catch(err){
+		console.error('Create team failed:', err.message)
+		return res.status(500).send({error: 'Failed to create the team'})
+	}
 })
-router.post('/register/services', async(req, res)=>{
-	const {name, teamId} = req.body
+
+// Body: { name, teamId } where teamId is the team's name (optional)
+router.post('/register/services', authMiddleware, adminOnly, async(req, res)=>{
+	const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : ''
+	const teamId = typeof req.body?.teamId === 'string' ? req.body.teamId.trim() : ''
+	if(!name)
+		return res.status(400).send({error: 'Service name is required'})
 	try{
-                 if(await Service.findOne({name}))
-                        return res.status(400).send({error: 'Service already exists'})
-				 if(await !Service.findOne({teamId}))
-						return res.status(400).send({error: 'Team does not exist'})
-                const service = await Service.create(req.body)
-                return res.send(service)
-        }catch(err){
-                console.log(err)
-        }
+		if(await Service.findOne({name}))
+			return res.status(400).send({error: 'Service already exists'})
+		if(teamId && !await Team.exists({name: teamId}))
+			return res.status(400).send({error: 'Team does not exist'})
+		const service = await Service.create(teamId ? {name, teamId} : {name})
+		return res.send(service)
+	}catch(err){
+		console.error('Create service failed:', err.message)
+		return res.status(500).send({error: 'Failed to create the service'})
+	}
 })
 
 module.exports = app => app.use('/', router)

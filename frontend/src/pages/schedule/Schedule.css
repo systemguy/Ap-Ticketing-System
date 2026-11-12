@@ -1,0 +1,114 @@
+/* On-call schedule: team tabs, the "on call now" banner and the week calendar */
+
+.team-tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--line); margin: 0 0 24px; overflow-x: auto; }
+
+.team-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-soft);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+
+.team-tabs a:hover { color: var(--accent); }
+.team-tabs a.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+.tab-badge { font-size: 9px; letter-spacing: 0.1em; padding: 1px 6px; border: 1px solid var(--accent); color: var(--accent); }
+
+.oncall-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  margin: 0 0 24px;
+  background: var(--success-soft);
+  border-left: 4px solid var(--success);
+}
+
+.oncall-banner p { margin: 0; color: var(--ink); font-size: 16px; }
+.oncall-banner b { font-weight: 500; }
+.oncall-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px rgba(77, 107, 69, 0.18); flex-shrink: 0; }
+.oncall-none { background: #f7e8e4; border-left-color: var(--danger); }
+.oncall-none .oncall-dot { background: var(--danger); box-shadow: 0 0 0 4px rgba(154, 74, 58, 0.18); }
+
+.shift-chip { display: inline-block; padding: 2px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap; }
+.shift-morning { background: #f4ecd9; color: #8a6a1f; }
+.shift-evening { background: #e8e4f0; color: #5a4b7a; }
+.shift-overnight { background: #2b2b2b; color: #faf8f5; }
+
+.calendar-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.calendar-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.calendar-nav .btn { margin-right: 0; }
+.calendar-range { font-family: var(--serif); font-size: 24px; margin-left: 8px; color: var(--ink); }
+
+.calendar { table-layout: fixed; min-width: 900px; }
+.calendar th, .calendar td { padding: 10px; border-right: 1px solid #ece5d8; }
+.calendar th:last-child, .calendar td:last-child { border-right: none; }
+.calendar thead th { text-align: center; }
+.calendar-corner { width: 150px; text-align: left !important; }
+.calendar-dow { display: block; }
+.calendar-date { display: block; font-family: var(--serif); font-size: 24px; color: var(--ink); text-transform: none; letter-spacing: 0; }
+.calendar thead th.is-today { background: var(--accent-soft); }
+.calendar thead th.is-today .calendar-date { color: var(--accent); }
+.calendar td { height: 84px; vertical-align: middle; }
+.calendar td.is-today { background: #fdf9f0; }
+.calendar tbody tr:hover td { background: inherit; }
+.calendar tbody tr:hover td.is-today { background: #fdf9f0; }
+.calendar td.is-gap { background: repeating-linear-gradient(-45deg, #fff, #fff 6px, #faf1ee 6px, #faf1ee 12px); }
+
+.calendar-shift { background: var(--surface) !important; text-transform: none; letter-spacing: 0; white-space: normal !important; }
+.calendar-shift .shift-chip { margin-bottom: 6px; }
+.calendar-shift .muted { display: block; font-size: 12px; }
+
+.person {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.3;
+  text-align: left;
+  border: none;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-soft);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-button { cursor: pointer; transition: background 0.15s; }
+.person-button:hover { background: var(--accent-soft); }
+.person.is-now { background: var(--success-soft); border-left-color: var(--success); font-weight: 500; }
+.person.is-over { opacity: 0.55; border-left-color: var(--line-strong); }
+.now-label { display: block; font-size: 10px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.1em; color: var(--success); }
+
+.add-slot {
+  width: 100%;
+  padding: 8px;
+  font-family: var(--sans);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px dashed var(--accent);
+  cursor: pointer;
+}
+
+.add-slot:hover { background: var(--accent-soft); }
+
+.gap-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--danger); }
+
+.schedule-foot { margin-top: 16px; }
+
+.modal-actions-split { justify-content: space-between; align-items: center; }
+.modal-actions-split > span { display: flex; gap: 12px; }
+.confirm-remove p { margin: 16px 0 0; }

@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import TicketForm from '../components/TicketForm';
 import { createTicket } from '../api/tickets';
+import { timed } from '../api/metrics';
 import { useSession } from '../context/SessionContext';
 
 // "Report an issue": open to every logged-in user, so residents can file tickets
@@ -11,11 +12,13 @@ export default function NewTicketPage() {
 
   async function submit(payload) {
     try {
-      const ticket = await createTicket(payload);
+      const { ticket, assignment } = await timed('submit', () => createTicket(payload));
+      // Tell the reporter who has the ticket now
+      const flash = assignment?.to
+        ? `Ticket submitted. ${assignment.to.name} is on call for ${assignment.team} and has been notified.`
+        : `Ticket submitted. ${assignment?.reason || 'Nobody is on call for it right now'}, so it's waiting in the team queue and will escalate if nobody acknowledges it.`;
       // Straight to the new ticket's timeline, or the profile if the id didn't come back
-      navigate(ticket?._id ? `/incidents/${ticket._id}/timeline` : '/profile', {
-        state: { flash: 'Ticket submitted. The team has been notified.' },
-      });
+      navigate(ticket?._id ? `/incidents/${ticket._id}/timeline` : '/profile', { state: { flash } });
     } catch (err) {
       if (err.status === 401) {
         logout();

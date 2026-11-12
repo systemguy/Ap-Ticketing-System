@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { addComment, changeStatus, getTicket } from '../api/tickets';
+import { addComment, changeStatus, getTicket, reassignTicket } from '../api/tickets';
+import { timed } from '../api/metrics';
 import { useSession } from '../context/SessionContext';
+import Modal from '../components/Modal';
 import { severityOf } from '../data/severity';
+import { formatTime } from '../data/shifts';
 import { formatDate, formatStatus, nameOf } from '../utils/incidents';
 import './Profile.css';
 
@@ -62,6 +65,23 @@ function describe(event) {
       return `${actor} commented`;
     case 'note':
       return `${actor} added a staff note`;
+    case 'auto_assigned':
+      // Added when the ticket is filed
+      return event.to
+        ? `Assigned automatically to ${nameOf(event.to)}, who was on call`
+        : `Not assigned automatically: ${event.comment || 'nobody was on call'}`;
+    case 'escalated': {
+      // Written by the escalation timer, so there's no actor; comment says why nobody new got it
+      const head = `Escalated to level ${event.level ?? '?'} (not acknowledged in time)`;
+      const skipped = event.skipped ? ' Passed straight through while catching up, so they were not notified.' : '';
+      if (event.comment) return `${head}. ${event.comment}.${skipped}`;
+      const from = nameOf(event.from);
+      return (from ? `${head}: reassigned from ${from} to ${nameOf(event.to)}.` : `${head}: assigned to ${nameOf(event.to)}.`) + skipped;
+    }
+    case 'final_escalation': {
+      const from = nameOf(event.from);
+      return `FINAL ESCALATION: nobody acknowledged it through every level of the policy${from ? `, so it was taken from ${from}` : ''}. It is now unassigned and pinned to the top of the team queue; the team lead and admins were notified.`;
+    }
     default:
       return `${actor} updated this incident`;
   }
@@ -154,6 +174,7 @@ export default function IncidentTimelinePage() {
   const [busy, setBusy] = useState(false);
   const [comment, setComment] = useState('');
   const [pending, setPending] = useState(null); // status waiting on confirmation
+  const [reassigning, setReassigning] = useState(false); // reassign confirmation open
 
   const back = canSeeQueue ? { to: '/incidents', label: 'Back to team queue' } : { to: '/profile', label: 'Back to my incidents' };
 
@@ -184,7 +205,8 @@ export default function IncidentTimelinePage() {
     setBusy(true);
     setFlash(null);
     try {
-      const res = await changeStatus(id, status);
+      // Time how long resolving takes (Performance page)
+      const res = status === 'Resolved' ? await timed('resolve', () => changeStatus(id, status)) : await changeStatus(id, status);
       let text = res?.message ? `${res.message}.` : `Status changed to ${formatStatus(status)}.`;
       if (reason) {
         try {
@@ -200,6 +222,21 @@ export default function IncidentTimelinePage() {
     }
     setPending(null);
     await load(); // show the ticket's current status either way
+    setBusy(false);
+  }
+
+  async function reassign() {
+    setBusy(true);
+    setFlash(null);
+    try {
+      const res = await reassignTicket(id, data.assignment.onCall._id);
+      setFlash({ ok: true, text: `${res.message}. The change is on the timeline.` });
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      setFlash({ ok: false, text: `Not reassigned. ${err.message}` });
+    }
+    setReassigning(false);
+    await load();
     setBusy(false);
   }
 
@@ -280,6 +317,45 @@ export default function IncidentTimelinePage() {
         </p>
       )}
 
+      {/* Ticket reached the final escalation step */}
+      {ticket.escalationExhaustedAt && ticket.status === 'Open' && data.role === 'solver' && (
+        <div className="final-banner" role="alert">
+          <b>Final escalation.</b> Nobody acknowledged this incident through every level of the escalation
+          policy, so it is unassigned and pinned to the top of the team queue. Anyone on the team can take it:
+          press <b>Acknowledge</b> below.
+        </div>
+      )}
+
+      {/* Team lead of this ticket's team: hand it to whoever is on call right now */}
+      {data.assignment && (
+        <section className="pf-assign" aria-labelledby="assign-heading">
+          <div>
+            <h2 id="assign-heading" className="pf-assign-title">Assignment</h2>
+            <p className="pf-assign-line">
+              {ticket.assignedTo ? <>Assigned to <b>{nameOf(ticket.assignedTo)}</b></> : <>Not assigned yet</>}
+              {data.assignment.onCall && (
+                <> · On call for {data.assignment.team} now: <b>{data.assignment.onCall.name}</b>
+                  {data.assignment.until && <> until {formatTime(data.assignment.until, true)}</>}
+                </>
+              )}
+            </p>
+            {!data.assignment.canReassign && data.assignment.reason && (
+              <p className="pf-assign-note">{data.assignment.reason}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn-small"
+            disabled={busy || !data.assignment.canReassign}
+            onClick={() => setReassigning(true)}
+          >
+            {data.assignment.onCall && data.assignment.canReassign
+              ? `${ticket.assignedTo ? 'Reassign' : 'Assign'} to ${data.assignment.onCall.name}`
+              : 'Reassign'}
+          </button>
+        </section>
+      )}
+
       {/* Only the ticket's team gets buttons, and only for the legal next statuses */}
       {isSolver && nextStatuses.length > 0 && (
         <div className="pf-status-actions">
@@ -349,6 +425,23 @@ export default function IncidentTimelinePage() {
           onCancel={() => setPending(null)}
           onConfirm={(reason) => moveTo(pending, reason)}
         />
+      )}
+
+      {reassigning && data.assignment?.onCall && (
+        <Modal title={ticket.assignedTo ? 'Reassign this ticket?' : 'Assign this ticket?'} onClose={() => setReassigning(false)} busy={busy}>
+          <p>
+            {ticket.assignedTo
+              ? <>This moves the ticket from <b>{nameOf(ticket.assignedTo)}</b> to <b>{data.assignment.onCall.name}</b>, who is on call for {data.assignment.team} right now.</>
+              : <>This gives the ticket to <b>{data.assignment.onCall.name}</b>, who is on call for {data.assignment.team} right now.</>}
+            {' '}The status stays {formatStatus(ticket.status)}, and the timeline records the time, who made the change, and the previous and new responder.
+          </p>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-outline" onClick={() => setReassigning(false)} disabled={busy} autoFocus>Cancel</button>
+            <button type="button" className="btn" onClick={reassign} disabled={busy}>
+              {busy ? 'Saving…' : `${ticket.assignedTo ? 'Reassign' : 'Assign'} to ${data.assignment.onCall.name}`}
+            </button>
+          </div>
+        </Modal>
       )}
     </main>
   );
