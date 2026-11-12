@@ -21,6 +21,6 @@ const ServicesScheme = new mongoose.Schema({
   
 }, { timestamps: true })
 
-const services = mongoose.model('Services', ServicesScheme)
+const services = mongoose.models.services || mongoose.model('services', ServicesScheme)
 
 module.exports = services

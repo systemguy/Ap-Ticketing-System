@@ -68,6 +68,18 @@ const TicketScheme= new mongoose.Schema({
 		required: true,
 		select: true
 	},
+	escLevel:{
+		type: Number,
+		required: true,
+		default: 0,
+		select: true
+	},
+	escTime:{
+		type: Number,
+		required: true,
+		default: 5,
+		select: true
+	},
 	createdAt:{
 		type: Date,
 		required: true,
@@ -103,6 +115,7 @@ const TicketScheme= new mongoose.Schema({
 		required: false,
 		select: true
 	},
+
 	// Solver who acknowledged the ticket
 	assignedTo:{
 		type: mongoose.Schema.Types.ObjectId,

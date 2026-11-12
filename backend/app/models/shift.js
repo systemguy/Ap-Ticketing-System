@@ -3,7 +3,7 @@ const mongoose = require('../../database')
 // One on-call shift: exactly one responder covers one team from start to end.
 // People pick a date and a slot; start and end are the real moments (Central time).
 const ShiftSchema = new mongoose.Schema({
-	team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
+	team: { type: mongoose.Schema.Types.ObjectId, ref: 'team', required: true },
 	responder: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 	slot: { type: String, enum: ['morning', 'evening', 'overnight'], required: true },
 	date: { type: String, required: true }, // 'YYYY-MM-DD': the Central day the shift starts
@@ -16,4 +16,4 @@ const ShiftSchema = new mongoose.Schema({
 ShiftSchema.index({ team: 1, start: 1 }, { unique: true })
 ShiftSchema.index({ responder: 1, start: 1 })
 
-module.exports = mongoose.model('Shift', ShiftSchema)
+module.exports = mongoose.models.shift || mongoose.model('shift', ShiftSchema)
