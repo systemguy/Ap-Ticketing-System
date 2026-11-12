@@ -6,9 +6,8 @@ import { SEVERITIES } from '../data/severity';
 import { formatDate } from '../utils/incidents';
 import './admin/Admin.css';
 
-// Requirement change (Sprint 4): "Uptime – how often can I not do things" and "Speed – log in,
-// incident submission, incident resolution, analytic update", plus overall performance.
-// Numbers come from the backend (helpers/metrics.js) and refresh every 30 seconds.
+// Requirement change: uptime and speed (log in, submitting, resolving, analytics).
+// Refreshes every 30 seconds.
 
 const WINDOWS = [['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']];
 
@@ -36,7 +35,7 @@ export default function PerformancePage() {
   const [range, setRange] = useState('24h');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [waited, setWaited] = useState(null); // how long the last refresh took for the user
+  const [waited, setWaited] = useState(null); // how long the last refresh took
 
   const load = useCallback(async () => {
     try {

@@ -57,7 +57,7 @@ export default function EscalationPage() {
   const [data, setData] = useState(null); // what GET /escalation/:team returned
   const [onCall, setOnCall] = useState(null);
   const [levels, setLevels] = useState([]); // drafts: [{ target, after }]
-  const [finalAfter, setFinalAfter] = useState(null); // how long the last level gets before the final step
+  const [finalAfter, setFinalAfter] = useState(null); // minutes before the final step
   const [enabled, setEnabled] = useState(true);
   const [copyFrom, setCopyFrom] = useState('');
   const [copyNote, setCopyNote] = useState(null); // { source, dropped }
@@ -170,7 +170,7 @@ export default function EscalationPage() {
     return personName(target.split(':')[1]) || 'A specific person';
   };
 
-  // "Goes to whoever is on call when filed; the team lead (Morgan) after 10 min, then final 20 min later."
+  // The plain-English summary for one severity
   function summary(key) {
     const who = (t) => (t === 'on-call' ? 'whoever is on call' : t === 'lead' ? `the team lead${lead ? ` (${lead.name})` : ''}` : targetLabel(t));
     const text = levels

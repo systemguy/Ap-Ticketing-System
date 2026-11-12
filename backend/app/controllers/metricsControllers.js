@@ -1,6 +1,6 @@
-// Requirement change (Sprint 4): uptime and speed. See helpers/metrics.js.
-//   GET  /metrics/summary?window=24h|7d|30d   admins and team leads
-//   POST /metrics/client  { op, ms }           any logged-in user's browser reports how long it waited
+// Requirement change: uptime and speed (see helpers/metrics.js)
+//   GET  /metrics/summary   numbers for the Performance page (admins and team leads)
+//   POST /metrics/client    the browser reports how long the user waited
 const express = require('express')
 const User = require('../models/user')
 const Team = require('../models/team')
@@ -34,7 +34,7 @@ router.post('/client', async (req, res) => {
 		return res.status(400).send({error: `op must be one of ${OPS.join(', ')} and ms between 0 and 120000`})
 	}
 	try{
-		// At most 20 reports a minute per person, so nobody can flood the numbers
+		// Max 20 reports a minute per person
 		const recent = await RequestSample.countDocuments({source: 'client', account: req.accountId, at: {$gte: new Date(Date.now() - 60000)}})
 		if(recent >= 20){
 			return res.status(429).send({error: 'Too many timing reports; try again in a minute'})

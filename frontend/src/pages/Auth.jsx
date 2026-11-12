@@ -80,7 +80,7 @@ function Auth() {
         return;
       }
       if (data.token) localStorage.setItem(TOKEN_KEY, data.token); // Save Bearer token
-      if (isLogin && data.token) reportTiming('login', waited); // how long logging in took (Performance page)
+      if (isLogin && data.token) reportTiming('login', waited); // for the Performance page
       refresh(); // tell the navbar and route guards who is logged in
       // Staff go to their team queue, residents to their own incidents
       navigate(homePathFor(data.token), { replace: true });

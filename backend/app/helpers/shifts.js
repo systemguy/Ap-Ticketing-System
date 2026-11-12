@@ -70,7 +70,7 @@ function responderProblems(shifts, now) {
 
 // Why someone can't go on a team's shifts, or null if they can. They must be active staff
 // whose home team it is (user.team holds the team's name), or the team's lead. Reporters never can.
-// A team's lead id as a string, whether `lead` is populated or a plain id ('' when there's none)
+// The team lead's id as a string ('' if there's no lead)
 const leadId = (team) => String(team?.lead?._id ?? team?.lead ?? '')
 
 function ineligibleReason(user, team) {

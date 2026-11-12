@@ -1,28 +1,28 @@
-// Requirement change (Sprint 4): uptime ("how often can I not do things") and speed (log in,
-// incident submission, incident resolution, analytics update), plus overall performance.
+// Requirement change: uptime and speed.
 //
-// - Every request is timed on the server (recordRequests middleware). The four operations the
-//   requirement names get their own label; everything else counts as "other".
-// - The browser also reports how long the user actually waited for those four (POST /metrics/client).
-// - A heartbeat is written every 30 seconds. Minutes without one are downtime.
-// - GET /health answers without logging in, for uptime monitors and the deploy check.
-// summary() puts it all together, against the targets below, for the Performance page.
+//   - Every request is timed. Log in, submitting, resolving and the analytics page each get
+//     their own label.
+//   - The browser also reports how long the user actually waited.
+//   - A heartbeat is saved every 30 seconds. Minutes without one count as downtime.
+//   - GET /health tells you if the server and database are up (no login needed).
+//
+// summary() builds everything the Performance page shows.
 const mongoose = require('../../database')
 const { RequestSample, Heartbeat } = require('../models/metrics')
 const Ticket = require('../models/tickets')
 
-// What "fast enough" and "up enough" mean for us. p95 = 95% of requests are at least this fast.
+// Our targets. p95 means 95% of requests are this fast or faster.
 const TARGETS = {
-	uptimePercent: 99, // at most about 14 minutes of downtime a day
-	// server: time inside the backend; client: what the user waited, network included
+	uptimePercent: 99, // about 14 minutes of downtime a day at most
+	// server = time in the backend, client = what the user waited
 	speed: {
 		login: { label: 'Log in', server: 1000, client: 2000 },
 		submit: { label: 'Incident submission', server: 1000, client: 2000 },
 		resolve: { label: 'Incident resolution (marking it resolved)', server: 1000, client: 2000 },
 		analytics: { label: 'Analytics update (this page)', server: 2000, client: 3000 },
 	},
-	analyticsRefreshSeconds: 30, // the Performance page reloads its numbers this often
-	// How fast incidents themselves get handled, by severity, in minutes
+	analyticsRefreshSeconds: 30, // how often the Performance page refreshes
+	// Targets for handling incidents, by severity, in minutes
 	incidents: {
 		4: { acknowledge: 15, resolve: 4 * 60 },
 		3: { acknowledge: 30, resolve: 24 * 60 },
@@ -35,7 +35,7 @@ const WINDOWS = { '24h': 24 * 3600e3, '7d': 7 * 24 * 3600e3, '30d': 30 * 24 * 36
 
 const startedAt = new Date()
 
-// Which named operation a finished request was
+// Which of our named operations a request was
 function classify(method, path, body) {
 	if (method === 'POST' && (path === '/login' || path === '/login/')) return 'login'
 	if (method === 'POST' && path === '/tickets/create') return 'submit'
@@ -44,15 +44,15 @@ function classify(method, path, body) {
 	return 'other'
 }
 
-// Express middleware: times every request and saves a sample when the response is sent
+// Times every request and saves the result
 function recordRequests(req, res, next) {
 	if (req.method === 'OPTIONS' || req.path === '/health') return next()
 	const start = process.hrtime.bigint()
 	res.on('finish', () => {
 		const ms = Number(process.hrtime.bigint() - start) / 1e6
-		// The route pattern (no ids), or "unmatched" for 404s
+		// The route pattern, without ids
 		const path = req.route ? `${req.baseUrl}${req.route.path}` : null
-		// Unknown paths and rejected logins-required calls are noise, not usage
+		// Skip 404s and 401s, they're not real usage
 		if (!path || res.statusCode === 401 || res.statusCode === 404) return
 		const op = classify(req.method, path, req.body)
 		RequestSample.create({ op, source: 'server', method: req.method, path, status: res.statusCode, ms: Math.round(ms * 10) / 10 })
@@ -63,7 +63,7 @@ function recordRequests(req, res, next) {
 
 const floorMinute = (d) => new Date(Math.floor(d.getTime() / 60000) * 60000)
 
-// Writes this minute's heartbeat. Fails (and so leaves a gap) when the database is unreachable.
+// Saves this minute's heartbeat. If the database is down this fails and leaves a gap.
 async function beat(type = 'beat') {
 	const now = new Date()
 	await Heartbeat.updateOne({ minute: floorMinute(now), type }, { $setOnInsert: { at: now } }, { upsert: true })
@@ -71,12 +71,12 @@ async function beat(type = 'beat') {
 
 function startHeartbeat() {
 	const run = (type) => beat(type).catch((err) => console.error('[uptime] heartbeat failed:', err.message))
-	// Wait for the database connection, then mark the start and beat every 30 seconds
+	// Once the database is connected, mark the start and keep beating
 	mongoose.connection.asPromise().then(() => { run('start'); run('beat') }).catch(() => {})
 	return setInterval(() => run('beat'), 30 * 1000)
 }
 
-// GET /health: is the server up and can it reach the database?
+// For GET /health
 function health() {
 	const db = mongoose.connection.readyState === 1
 	return {
@@ -88,7 +88,7 @@ function health() {
 	}
 }
 
-// count, average, median (p50), p95, max and server errors for a list of samples
+// count, average, p50, p95, max and errors for a list of timings
 function stats(samples) {
 	if (!samples.length) return { count: 0, avg: null, p50: null, p95: null, max: null, errors: 0 }
 	const ms = samples.map((s) => s.ms).sort((a, b) => a - b)
@@ -108,7 +108,7 @@ async function uptime(now, since) {
 	const first = await Heartbeat.findOne().sort({ minute: 1 }).select('minute')
 	if (!first) return { percent: null, upMinutes: 0, totalMinutes: 0, monitoredSince: null, downtimes: [], restarts: [] }
 	const start = first.minute > since ? first.minute : floorMinute(since)
-	// Count whole minutes only: the current minute may not have its heartbeat yet
+	// Only count finished minutes
 	const end = new Date(Math.max(start.getTime(), floorMinute(now).getTime() - 60000))
 	const [beats, starts] = await Promise.all([
 		Heartbeat.find({ type: 'beat', minute: { $gte: start, $lte: end } }).select('minute').sort({ minute: 1 }).lean(),
@@ -116,7 +116,7 @@ async function uptime(now, since) {
 	])
 	const totalMinutes = Math.round((end - start) / 60000) + 1
 	const upMinutes = Math.min(totalMinutes, beats.length)
-	// A gap of more than one missing minute between heartbeats is an outage
+	// Two or more missing minutes in a row = an outage
 	const downtimes = []
 	let prev = start.getTime() - 60000
 	for (const b of beats) {
@@ -176,7 +176,7 @@ async function summary(windowKey = '24h') {
 	const now = new Date()
 	const window = WINDOWS[windowKey] ? windowKey : '24h'
 	const since = new Date(now - WINDOWS[window])
-	// The named operations are rare, so all of them are read; everything else is summed in the database
+	// Read all the named operations; total everything else in the database
 	const [up, samples, overallAgg, overallSample, incidents] = await Promise.all([
 		uptime(now, since),
 		RequestSample.find({ at: { $gte: since }, op: { $in: OPS } }).select('op source status ms').lean(),
@@ -184,7 +184,7 @@ async function summary(windowKey = '24h') {
 			{ $match: { at: { $gte: since }, source: 'server' } },
 			{ $group: { _id: null, count: { $sum: 1 }, avg: { $avg: '$ms' }, max: { $max: '$ms' }, errors: { $sum: { $cond: [{ $gte: ['$status', 500] }, 1, 0] } } } },
 		]),
-		// p50/p95 over all traffic from a random sample of at most 20,000 requests
+		// p50/p95 for all traffic, from a random sample of up to 20,000 requests
 		RequestSample.aggregate([{ $match: { at: { $gte: since }, source: 'server' } }, { $sample: { size: 20000 } }, { $project: { _id: 0, ms: 1, status: 1 } }]),
 		incidentSpeed(since),
 	])

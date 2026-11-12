@@ -20,9 +20,7 @@ const EMAIL_LABELS = {
   pending: 'Email sending…',
 };
 
-// Everything the app told this person: tickets assigned to them (by being on call, by their
-// team lead, or by escalation), final escalations for teams they lead, and, for reporters,
-// when their ticket was acknowledged and resolved. Each one was also sent by email.
+// Your notifications. Each one was also sent by email.
 export default function NotificationsPage() {
   const navigate = useNavigate();
   const { logout } = useSession();

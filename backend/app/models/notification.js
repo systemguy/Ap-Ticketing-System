@@ -1,18 +1,16 @@
 const mongoose = require('../../database')
 
-// One in-app notification. The same message also goes out by email (see helpers/notify.js);
-// `email` records what happened to that copy so a failed send is visible, not silent.
-//   assigned      a solver was given a ticket (on-call auto-assignment, the team lead, or escalation)
-//   final         a ticket went through every escalation level without being acknowledged
-//   acknowledged  the reporter's ticket was acknowledged
-//   resolved      the reporter's ticket was resolved
+// A notification shown in the app. The same message is also emailed, and `email` tracks
+// whether that worked.
+// Types: assigned (solver got a ticket), final (ticket hit the final escalation step),
+// acknowledged and resolved (for the reporter).
 const NotificationSchema = new mongoose.Schema({
 	user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 	ticket: { type: mongoose.Schema.Types.ObjectId, ref: 'Ticket' },
 	type: { type: String, enum: ['assigned', 'final', 'acknowledged', 'resolved'], required: true },
 	title: { type: String, required: true },
 	message: { type: String, required: true },
-	// What the solver needs at a glance: incident id, service, severity and the action needed
+	// Ticket details shown in the notification
 	ticketRef: String,
 	service: String,
 	severity: Number,

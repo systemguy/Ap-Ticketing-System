@@ -13,7 +13,7 @@ export default function NewTicketPage() {
   async function submit(payload) {
     try {
       const { ticket, assignment } = await timed('submit', () => createTicket(payload));
-      // Say who has it now: the on-call solver (who was just notified), or why nobody does yet
+      // Tell the reporter who has the ticket now
       const flash = assignment?.to
         ? `Ticket submitted. ${assignment.to.name} is on call for ${assignment.team} and has been notified.`
         : `Ticket submitted. ${assignment?.reason || 'Nobody is on call for it right now'}, so it's waiting in the team queue and will escalate if nobody acknowledges it.`;

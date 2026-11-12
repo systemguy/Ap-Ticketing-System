@@ -29,13 +29,13 @@ module.exports = (req, res, next) => {
             return res.status(401).send({ error: 'Invalid or expired token' });
         }
         try {
-            // A token lasts 24 hours, so check the account on every request: a deactivated
-            // account loses access right away, and a team change applies without logging out.
+            // Check the account on every request, so a deactivated account is locked out
+            // right away and team changes apply without logging out.
             const account = await User.findById(decoded.id).select('team active');
             if (!account) {
                 return res.status(401).send({ error: 'Account not found. Please log in again.' });
             }
-            // 401 so the frontend logs them out (it treats 401 as "log in again")
+            // 401 makes the frontend log them out
             if (account.active === false) {
                 return res.status(401).send({ error: 'This account has been deactivated. Contact building management.' });
             }

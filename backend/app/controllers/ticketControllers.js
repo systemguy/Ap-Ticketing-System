@@ -12,7 +12,7 @@ const {
 const { whoIsOnCall } = require('../helpers/shifts')
 const { notifyAssigned, notifyReporter } = require('../helpers/notify')
 
-// Ticket photos come from TicketForm.jsx as a compressed image data URL
+// Photos come in as image data URLs
 const PHOTO_FORMAT = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/
 const PHOTO_MAX = 3 * 1024 * 1024
 
@@ -34,8 +34,7 @@ const NO_RESPONDER = {
 const QUEUE_ORDER = {escalationExhaustedAt: -1, severity: -1, createdAt: 1}
 
 // Tickets you filed, plus every ticket for your home team and any team you lead.
-// Admins see every ticket. Tickets that reached the final escalation step come first, then the
-// most severe, then the oldest.
+// Admins see every ticket. Final-step tickets come first, then most severe, then oldest.
 router.get('/', async (req, res)=>{
 	try{
 	const {accountId, team} = req
@@ -60,10 +59,8 @@ router.get('/', async (req, res)=>{
 
 })
 
-// File a ticket. It goes straight to whoever is on call for the service's team (Sprint 3
-// auto-assignment), and they're notified in-app and by email. If nobody is on call, or no team
-// owns the service, it stays unassigned and the timeline says why; the team's escalation
-// policy still applies from the moment it was filed.
+// Create a ticket. It's assigned to whoever is on call for that service's team, and they get
+// notified. If nobody is on call it stays unassigned, and the timeline says why.
 router.post('/create', async(req, res)=>{
 	try{
 		const {title, description, service, severity, unit, userComment, type, photo} = req.body
@@ -83,7 +80,7 @@ router.post('/create', async(req, res)=>{
 		// The first timeline entry records who filed the ticket
 		const events = [{type: 'created', actor: userPosted, createdAt}]
 
-		// Auto-assign to whoever is on call for the team that owns this service
+		// Assign to whoever is on call
 		const team = await ticketTeam({service})
 		let assignee = null
 		let reason = null
@@ -168,9 +165,8 @@ router.put('/edit/:ticketId', async(req, res) =>{
 		// type mirrors service because the model still requires it
 		const set = {...changes, type: service}
 		const update = {$set: set, $push: {events: {$each: [{type: 'edited', actor: req.accountId, fields, createdAt: now}]}}}
-		// Moving the ticket to a service another team handles hands it to that team: it goes to
-		// whoever is on call there, and its escalation starts over under that team's policy.
-		// Once a team has acknowledged it, the reporter can't move it away from them.
+		// If the new service belongs to another team, hand the ticket to that team's on-call
+		// person and restart escalation. Not allowed once a team has acknowledged it.
 		const [oldTeam, newTeam] = await Promise.all([ticketTeam(ticket), ticketTeam({service})])
 		let assignee = null
 		if(String(oldTeam?._id ?? '') !== String(newTeam?._id ?? '')){
@@ -192,7 +188,7 @@ router.put('/edit/:ticketId', async(req, res) =>{
 				? {type: 'auto_assigned', to: assignee.name, createdAt: now}
 				: {type: 'auto_assigned', comment: reason, createdAt: now})
 		}
-		// Matching on status and level keeps this from racing the escalation timer or an acknowledge
+		// Only save if nothing changed the ticket in the meantime
 		const updated = await Ticket.findOneAndUpdate(
 			{_id: ticket._id, status: ticket.status, escalationLevel: ticket.escalationLevel ? ticket.escalationLevel : {$in: [0, null]}},
 			update,
@@ -232,7 +228,7 @@ router.put('/update/:ticketId', async(req, res) =>{
 		const update = {status: to}
 		const unset = {}
 		if(STATUS_DATES[to]) update[STATUS_DATES[to]] = now
-		// `resolved` mirrors the status: true once it's Resolved or Closed, false again if reopened
+		// resolved is true for Resolved and Closed, false again if reopened
 		update.resolved = to === 'Resolved' || to === 'Closed'
 		// A reopened ticket starts its escalation policy again from level 1
 		if(to === 'Open'){
@@ -240,7 +236,7 @@ router.put('/update/:ticketId', async(req, res) =>{
 			update.escalationClockAt = now
 			unset.escalationExhaustedAt = 1
 		}
-		// Acknowledging is taking responsibility: escalation stops, and the final-step flag goes away
+		// Acknowledging stops escalation and clears the final-step flag
 		if(to === 'Acknowledged') unset.escalationExhaustedAt = 1
 		const me = await user.findById(req.accountId).select('name')
 		const events = [{type: 'status_change', actor: req.accountId, from, to, createdAt: now}]
@@ -250,8 +246,7 @@ router.put('/update/:ticketId', async(req, res) =>{
 			update.assignedTo = req.accountId
 			events.push({type: 'assignment_change', actor: req.accountId, from: previous?.name, to: me?.name, createdAt: now})
 		}
-		// Matching on the old status (and, for an Open ticket, the assignee and escalation state the
-		// timer may be changing) makes this fail if someone or something else changed it first
+		// Only save if nobody (including the escalation timer) changed the ticket in the meantime
 		const match = {_id: ticket._id, status: from}
 		if(from === 'Open'){
 			match.assignedTo = ticket.assignedTo ?? null
@@ -264,7 +259,7 @@ router.put('/update/:ticketId', async(req, res) =>{
 		if(!updated){
 			return res.status(409).send({error: 'Someone else just changed this ticket. Reload to see its current status.'})
 		}
-		// The reporter hears about acknowledgement and resolution, nothing in between
+		// The reporter only hears about acknowledged and resolved
 		if((to === 'Acknowledged' || to === 'Resolved') && !isTicketOwner(req.accountId, updated)){
 			await notifyReporter(updated, updated.userPosted, to === 'Acknowledged' ? 'acknowledged' : 'resolved', me?.name)
 		}
@@ -399,8 +394,7 @@ router.put('/:ticketId/assign', async(req, res) =>{
 		const now = new Date()
 		const set = {assignedTo: target._id}
 		const update = {$set: set, $push: {events: {type: 'assignment_change', actor: req.accountId, from: previous?.name, to: target.name, createdAt: now}}}
-		// A ticket that reached the final escalation step leaves it once the lead gives it to someone,
-		// and its escalation policy starts over for the new person (it still needs acknowledging)
+		// If it was at the final step, assigning it restarts escalation for the new person
 		if(ticket.escalationExhaustedAt){
 			set.escalationLevel = 0
 			set.escalationClockAt = now

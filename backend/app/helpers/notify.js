@@ -1,16 +1,12 @@
-// Notifications: every message is saved in-app (the bell in the navbar) and sent by email.
+// Sends notifications. Each one is saved in the app (the bell) and also emailed.
 //
-// Who gets what (Sprint 4):
-//   solver    whenever a ticket is assigned to them: on-call auto-assignment when it's filed,
-//             a team lead's manual reassignment, or the escalation timer
-//   lead      (and admins) when a ticket goes through every escalation level unacknowledged
-//   reporter  only when their ticket is acknowledged and when it is resolved
+// Who gets notified:
+//   - a solver, when a ticket is assigned to them (on call, by the lead, or by escalation)
+//   - the team lead and admins, when a ticket reaches the final escalation step
+//   - the reporter, only when their ticket is acknowledged or resolved
 //
-// Email settings come from .env. Without SMTP_HOST the in-app copy is still saved and the email
-// is marked "skipped", so local development works with no mail server.
-//   SMTP_HOST=smtp-relay.brevo.com  SMTP_PORT=587  SMTP_SECURE=false
-//   SMTP_USER=...  SMTP_PASS=...    SMTP_FROM="AP Ticketing <no-reply@example.com>"
-//   APP_URL=http://159.65.229.254   (links in emails point here)
+// Email uses the SMTP_* settings in .env. If SMTP_HOST is empty, we skip the email
+// but still save the in-app notification.
 const nodemailer = require('nodemailer')
 const Notification = require('../models/notification')
 const User = require('../models/user')
@@ -34,13 +30,13 @@ function mailer() {
 
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-// The short id the Team Queue shows (last 6 characters of the ticket's id)
+// Short ticket id, same as the one shown in the Team Queue
 const ticketRef = (ticket) => `#${String(ticket._id).slice(-6).toUpperCase()}`
 const serviceLabel = (s) => String(s || '').replace(/^./, (c) => c.toUpperCase()).replace(/\bac\b/gi, 'AC')
 const severityText = (n) => `${SEVERITY_LABELS[Number(n)] ?? 'Unknown'} (${Number(n) || '?'}/4)`
 const ticketLink = (ticket) => `${(process.env.APP_URL || 'http://localhost:5173').replace(/\/+$/, '')}/incidents/${ticket._id}/timeline`
 
-// Sends the email copy of a saved notification and records the outcome on it. Never throws.
+// Emails a saved notification and records whether it worked. Never throws.
 async function sendEmail(doc, recipient, ticket) {
 	const transport = mailer()
 	if (!transport) {
@@ -80,8 +76,7 @@ async function sendEmail(doc, recipient, ticket) {
 	}
 }
 
-// Saves the in-app notification, then sends the email without making the caller wait for it.
-// Returns the saved notification, or null if the recipient doesn't exist. Never throws.
+// Saves the notification, then emails it in the background. Never throws.
 async function notify(userId, { ticket, type, title, message, action }) {
 	try {
 		const recipient = await User.findById(userId).select('name email active')
@@ -108,10 +103,8 @@ async function notify(userId, { ticket, type, title, message, action }) {
 
 const ACK_ACTION = 'Acknowledge it in the Team Queue (open the incident and press "Acknowledge"). Until someone acknowledges it, it keeps moving up the escalation policy.'
 
-// A ticket was assigned to a solver.
-//   how: 'on-call'     auto-assigned when it was filed, because they're on call
-//        'lead'        a team lead (or admin) reassigned it to them; by = their name
-//        'escalation'  the escalation timer moved it to them; level = the level it reached
+// Tells a solver a ticket was assigned to them.
+// how: 'on-call' (when filed), 'lead' (reassigned by the lead) or 'escalation'
 function notifyAssigned(ticket, userId, { how, by, level } = {}) {
 	const ref = ticketRef(ticket)
 	const reason = how === 'escalation'
@@ -128,8 +121,7 @@ function notifyAssigned(ticket, userId, { how, by, level } = {}) {
 	})
 }
 
-// A ticket went through every escalation level without being acknowledged. Goes to the team
-// lead and every admin (building management); it is now unassigned and pinned for the whole team.
+// Tells the team lead and admins that a ticket went through every level unacknowledged.
 async function notifyFinal(ticket, teamName, recipientIds) {
 	const ref = ticketRef(ticket)
 	const unique = [...new Set(recipientIds.filter(Boolean).map(String))]
@@ -142,7 +134,7 @@ async function notifyFinal(ticket, teamName, recipientIds) {
 	})))
 }
 
-// The reporter hears about exactly two moments: acknowledged and resolved.
+// The reporter only hears when their ticket is acknowledged and when it's resolved.
 function notifyReporter(ticket, reporterId, kind, byName) {
 	const ref = ticketRef(ticket)
 	const acknowledged = kind === 'acknowledged'

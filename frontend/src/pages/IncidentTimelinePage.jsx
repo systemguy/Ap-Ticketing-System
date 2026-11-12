@@ -66,7 +66,7 @@ function describe(event) {
     case 'note':
       return `${actor} added a staff note`;
     case 'auto_assigned':
-      // Written when the ticket was filed: it goes to whoever is on call for the service's team
+      // Added when the ticket is filed
       return event.to
         ? `Assigned automatically to ${nameOf(event.to)}, who was on call`
         : `Not assigned automatically: ${event.comment || 'nobody was on call'}`;
@@ -205,7 +205,7 @@ export default function IncidentTimelinePage() {
     setBusy(true);
     setFlash(null);
     try {
-      // Resolving is one of the operations the Performance page times
+      // Time how long resolving takes (Performance page)
       const res = status === 'Resolved' ? await timed('resolve', () => changeStatus(id, status)) : await changeStatus(id, status);
       let text = res?.message ? `${res.message}.` : `Status changed to ${formatStatus(status)}.`;
       if (reason) {
@@ -317,7 +317,7 @@ export default function IncidentTimelinePage() {
         </p>
       )}
 
-      {/* Went through every escalation level without being acknowledged */}
+      {/* Ticket reached the final escalation step */}
       {ticket.escalationExhaustedAt && ticket.status === 'Open' && data.role === 'solver' && (
         <div className="final-banner" role="alert">
           <b>Final escalation.</b> Nobody acknowledged this incident through every level of the escalation

@@ -3,8 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { photoUrl, useSession } from '../context/SessionContext';
 import { NOTIFICATIONS_CHANGED, unreadCount } from '../api/notifications';
 
-// Unread notifications for the logged-in user, checked every 30 seconds and right after
-// something on the page marks them read
+// Unread count for the bell, checked every 30 seconds
 function useUnread(loggedIn, pathname) {
   const [unread, setUnread] = useState(0);
   useEffect(() => {

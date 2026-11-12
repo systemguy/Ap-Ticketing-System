@@ -1,5 +1,4 @@
-// In-app notifications for the logged-in user (the bell in the navbar). The same messages are
-// emailed when they're created; see helpers/notify.js.
+// Notifications for the logged-in user (the bell in the navbar)
 const express = require('express')
 const { isValidObjectId } = require('mongoose')
 const Notification = require('../models/notification')
@@ -26,7 +25,7 @@ const toClient = (n) => ({
 	email: n.email?.status ?? null,
 })
 
-// GET /notifications?limit=50  newest first, plus how many are unread
+// Newest first, plus the unread count
 router.get('/', async (req, res) => {
 	try{
 		const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200)
@@ -41,7 +40,7 @@ router.get('/', async (req, res) => {
 	}
 })
 
-// GET /notifications/unread-count  for the navbar badge (polled)
+// Just the unread count, for the bell
 router.get('/unread-count', async (req, res) => {
 	try{
 		return res.send({unread: await Notification.countDocuments({user: req.accountId, read: false})})
@@ -51,7 +50,7 @@ router.get('/unread-count', async (req, res) => {
 	}
 })
 
-// PATCH /notifications/read-all
+// Mark all as read
 router.patch('/read-all', async (req, res) => {
 	try{
 		const result = await Notification.updateMany({user: req.accountId, read: false}, {$set: {read: true, readAt: new Date()}})
@@ -62,7 +61,7 @@ router.patch('/read-all', async (req, res) => {
 	}
 })
 
-// PATCH /notifications/:notificationId/read  only your own
+// Mark one as read (only your own)
 router.patch('/:notificationId/read', async (req, res) => {
 	try{
 		const n = await Notification.findOneAndUpdate(

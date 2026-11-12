@@ -110,7 +110,7 @@ function Incidents() {
   }
 
   // Tickets without a severity (created before Sprint 2) only show under "All".
-  // Tickets that reached the final escalation step always come first, whatever the filters.
+  // Final-step tickets always show first, whatever the filters.
   const visibleIncidents = useMemo(() => incidents.filter((i) => {
     if (i.escalationExhaustedAt && relationOf(i).team) return true;
     if ((Number(i.severity) || 0) < minSeverity) return false;

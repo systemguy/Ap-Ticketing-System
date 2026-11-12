@@ -30,7 +30,7 @@ function App() {
           <Route path="/tickets/new" element={<NewTicketPage />} />
           <Route path="/incidents/:id/timeline" element={<IncidentTimelinePage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
-          {/* Uptime and speed (Sprint 4 requirement change). The page itself tells non-leads it's for leads and admins. */}
+          {/* Uptime and speed (for team leads and admins) */}
           <Route path="/performance" element={<PerformancePage />} />
 
           {/* Staff and admins only. Residents see their incidents on their profile. */}

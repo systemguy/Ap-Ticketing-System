@@ -6,27 +6,27 @@ const { recordRequests, startHeartbeat, health } = require('./app/helpers/metric
 const app = express()
 
 app.use(cors())
-// Ticket photos arrive as compressed data URLs, so allow a few MB
+// Ticket photos are sent inside the request, so allow a few MB
 app.use(express.json({limit: '4mb'}))
 app.use(express.urlencoded({extended: false}))
 
-// Up and reachable? No login needed, for uptime monitors and the deploy check
+// Is the server up? No login needed
 app.get('/health', (req, res) => {
 	const h = health()
 	res.status(h.status === 'ok' ? 200 : 503).send(h)
 })
 
-// Times every request (Sprint 4 requirement change: speed)
+// Time every request (for the Performance page)
 app.use(recordRequests)
 
-// Profile pictures saved by the signup form (backend/uploads)
+// Profile pictures uploaded at signup
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {fallthrough: false}))
 
 require('./app/controllers/index')(app)
 
-// Escalates unacknowledged tickets under each team's escalation policy, every 30 seconds
+// Escalate tickets nobody has acknowledged (every 30 seconds)
 require('./app/helpers/escalation').startEscalationTimer()
-// Writes a heartbeat every 30 seconds; minutes without one count as downtime
+// Heartbeat for uptime tracking (every 30 seconds)
 startHeartbeat()
 
 const PORT = Number(process.env.PORT || 3000)

@@ -130,8 +130,7 @@ router.post('/login/', async(req, res)=>{
 		return res.status(500).send({error: 'Login failed'})
 	}
 })
-// Setting up teams and services is for admins only. These used to be open to anyone, logged in
-// or not, which let a stranger create a team and make themselves its lead.
+// Only admins can create teams and services (these used to be open to anyone)
 async function adminOnly(req, res, next){
 	try{
 		const me = await User.findById(req.accountId).select('role active')
@@ -144,7 +143,7 @@ async function adminOnly(req, res, next){
 	}
 }
 
-// Body: { name }. The lead is chosen afterwards in the admin portal.
+// Body: { name }. Pick the lead later in the admin portal.
 router.post('/register/team', authMiddleware, adminOnly, async(req, res)=>{
 	const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
 	if(!name)
@@ -160,7 +159,7 @@ router.post('/register/team', authMiddleware, adminOnly, async(req, res)=>{
 	}
 })
 
-// Body: { name, teamId } where teamId is the owning team's name (empty for an unowned service)
+// Body: { name, teamId } where teamId is the team's name (optional)
 router.post('/register/services', authMiddleware, adminOnly, async(req, res)=>{
 	const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : ''
 	const teamId = typeof req.body?.teamId === 'string' ? req.body.teamId.trim() : ''

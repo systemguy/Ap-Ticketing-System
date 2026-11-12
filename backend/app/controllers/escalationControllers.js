@@ -1,9 +1,6 @@
-// Escalation policies: who an unacknowledged ticket goes to at each level, and after how long
-// for each severity, then how long the last level gets before the final step. Staff on a team
-// (and its lead) can see the policy; only the team lead or an admin can change it. Same
-// visibility rules as the on-call schedule. A lead of several teams can copy one team's policy
-// into another's form (GET /escalation/:team/copy-from/:source); people who aren't on the
-// target team are left out, so HVAC's Bob never ends up in Wifi's chain.
+// Escalation policies. Anyone on the team can see it; only the team lead or an admin can change it.
+// A lead of several teams can copy one team's policy to another. People who aren't on the
+// new team get left out.
 const express = require('express')
 const EscalationPolicy = require('../models/escalationPolicy')
 const Ticket = require('../models/tickets')
@@ -63,8 +60,7 @@ async function pagePayload(me, team) {
 		}
 	}))
 
-	// Open (unacknowledged) tickets for the team's services, and when each one escalates next.
-	// Tickets that reached the final step come first.
+	// Open tickets and when each one escalates next (final-step tickets first)
 	const services = await Service.find({teamId: team.name}).select('name')
 	const open = await Ticket.find({status: 'Open', service: {$in: services.map(s => s.name)}})
 		.select('title severity unit service status createdAt escalationLevel escalationClockAt escalationExhaustedAt assignedTo')
@@ -94,8 +90,7 @@ async function pagePayload(me, team) {
 		}
 	}))
 
-	// The "who gets it" dropdown: this team's people and its lead, then admins (building
-	// management). Nobody from another team, so one team's policy never points at another's staff.
+	// People you can pick for a level: this team, its lead, and admins
 	let candidates = []
 	let copySources = []
 	if(editable){
@@ -108,7 +103,7 @@ async function pagePayload(me, team) {
 			team: isStaff(u) ? u.team : null,
 			group: u.team === team.name || String(u._id) === String(lead) ? 'team' : 'admin',
 		}))
-		// Other teams this person also manages that have a saved policy to copy from
+		// Other teams this person leads that have a policy to copy
 		const others = (await visibleTeams(me)).filter(t => String(t._id) !== String(team._id) && canManage(me, t))
 		const saved = await EscalationPolicy.find({team: {$in: others.map(t => t._id)}, 'levels.0': {$exists: true}}).select('team')
 		copySources = others.filter(t => saved.some(p => String(p.team) === String(t._id))).map(t => t.name)
@@ -146,11 +141,8 @@ router.get('/:team', async(req, res) =>{
 })
 
 // GET /escalation/:team/copy-from/:source
-// A lead of both teams (or an admin) gets :source's policy rewritten for :team, to load into the
-// form. Nothing is saved: they review it and save it like any other change. Role levels (on call,
-// team lead) carry over as roles, so they point at :team's own on-call person and lead. A
-// specific person who isn't on :team (and isn't its lead or an admin) is left out and listed in
-// `dropped`, so a poor copy can never send :team's tickets to the other team's staff.
+// Copies another team's policy into the form (nothing is saved yet). "On call" and "team lead"
+// levels carry over as-is. Specific people who aren't on this team are left out and listed.
 router.get('/:team/copy-from/:source', async(req, res) =>{
 	try{
 		const found = await loadTeam(req, res)
@@ -227,7 +219,7 @@ router.put('/:team', async(req, res) =>{
 			return res.status(400).send({error: errors})
 		}
 		const enabled = req.body?.enabled !== false
-		// Restart the clock for old tickets when escalation is switched on (new policy or re-enabled)
+		// Turning escalation on starts the clock now for older tickets
 		const before = await EscalationPolicy.findOne({team: team._id}).select('enabled enabledAt')
 		const set = {levels, finalAfter, enabled, updatedBy: me._id}
 		if(enabled && (!before || !before.enabled || !before.enabledAt)) set.enabledAt = new Date()
