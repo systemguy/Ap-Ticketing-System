@@ -150,6 +150,21 @@ async function whoIsOnCall(teamId, at = new Date()) {
 // How many open incidents (Open, Acknowledged, Investigating) a person has right now
 const activeLoad = (userId) => Ticket.countDocuments({ assignedTo: userId, status: { $in: ACTIVE } })
 
+// Runs one assignment at a time per team. Without this, a burst of new tickets (the Sprint 5
+// spike test) all read "2 open incidents" before any of them is saved, and someone ends up
+// with more than MAX_ACTIVE. Picking the person and saving the ticket must both happen inside
+// fn. This works because the backend runs as one Node process; with several processes the
+// limit would need a check in the database instead.
+const teamQueues = new Map()
+function withTeamLock(teamId, fn) {
+	const key = String(teamId)
+	const run = (teamQueues.get(key) ?? Promise.resolve()).then(fn)
+	const tail = run.catch(() => {})
+	teamQueues.set(key, tail)
+	tail.then(() => { if (teamQueues.get(key) === tail) teamQueues.delete(key) })
+	return run
+}
+
 // Who should get a new ticket for a team right now: the primary on call, unless they already
 // have MAX_ACTIVE open incidents; then the secondary, under the same limit.
 //   { responder, role: 'primary' | 'secondary', shift, loads }   someone can take it
@@ -207,5 +222,5 @@ const forCheck = (s) => ({
 
 module.exports = {
 	SLOTS, MAX_ACTIVE, slotTimes, teamProblems, responderProblems, ineligibleReason,
-	canManage, visibleTeams, findTeam, whoIsOnCall, onCallAssignee, activeLoad, toClient, forCheck,
+	canManage, visibleTeams, findTeam, whoIsOnCall, onCallAssignee, activeLoad, withTeamLock, toClient, forCheck,
 }
