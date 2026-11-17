@@ -8,7 +8,7 @@ const User = require('../models/user')
 const authMiddleware = require('../middleware/authMiddleWare')
 const {
 	SLOTS, slotTimes, teamProblems, responderProblems, ineligibleReason,
-	canManage, visibleTeams, findTeam, whoIsOnCall, toClient, forCheck,
+	canManage, visibleTeams, findTeam, onCallAssignee, toClient, forCheck,
 } = require('../helpers/shifts')
 const { centralMoment, centralDate, addDays, isDateKey, formatDay } = require('../helpers/time')
 
@@ -26,7 +26,7 @@ async function currentUser(req, res) {
 	return me
 }
 
-const withNames = (query) => query.populate('team', 'name').populate('responder', 'name')
+const withNames = (query) => query.populate('team', 'name').populate('responder', 'name').populate('secondary', 'name')
 
 // Shifts for the teams you're on or lead. Defaults to today and the next five weeks.
 // Query: from, to (YYYY-MM-DD, Central, inclusive) and team (name or id)
@@ -82,13 +82,20 @@ router.get('/on-call', async(req, res) =>{
 		if(isNaN(at)){
 			return res.status(400).send({error: 'at must be a date and time, e.g. 2026-10-24T10:00:00-05:00'})
 		}
-		const result = await whoIsOnCall(team._id, at)
+		const result = await onCallAssignee(team._id, at)
+		const shift = result.shift ? await withNames(Shift.findById(result.shift._id)) : null
+		const primary = result.loads.find(l => l.role === 'primary')
+		const secondary = result.loads.find(l => l.role === 'secondary')
 		return res.send({
 			team: {_id: team._id, name: team.name},
 			at,
-			responder: result.responder ? {_id: result.responder._id, name: result.responder.name} : null,
+			// The primary and secondary on call, with how many open incidents each has
+			responder: primary ? {_id: primary._id, name: primary.name, load: primary.load} : null,
+			secondary: secondary ? {_id: secondary._id, name: secondary.name, load: secondary.load} : null,
+			// Who the next new ticket would go to
+			next: result.responder ? {_id: result.responder._id, name: result.responder.name, role: result.role} : null,
 			reason: result.reason ?? null,
-			shift: result.shift ? toClient(result.shift) : null,
+			shift: shift ? toClient(shift) : null,
 		})
 	}catch(err){
 		console.log(err)
@@ -96,7 +103,8 @@ router.get('/on-call', async(req, res) =>{
 	}
 })
 
-// Add shifts (team leads, for their own teams). Body: { shifts: [{ team, employeeId, date, shift }] }
+// Add shifts (team leads, for their own teams). Body: { shifts: [{ team, employeeId, secondaryId, date, shift }] }
+// employeeId is the primary on call and secondaryId the secondary; both are required.
 // team is a name or id and defaults to the person's home team; shift is morning, evening or overnight.
 // All or nothing: if anything is wrong, nothing is saved and every problem is listed.
 // Exact repeats of shifts already on the schedule are skipped, as the schedule page expects.
@@ -110,7 +118,7 @@ router.post('/', async(req, res) =>{
 		}
 		const now = new Date()
 		const teams = await Team.find()
-		const ids = items.map(i => i?.employeeId ?? i?.responder).filter(id => isValidObjectId(id))
+		const ids = items.flatMap(i => [i?.employeeId ?? i?.responder, i?.secondaryId ?? i?.secondary]).filter(id => isValidObjectId(id))
 		const people = await User.find({_id: {$in: ids}}).select('name team role active')
 		const personById = new Map(people.map(p => [String(p._id), p]))
 
@@ -130,9 +138,14 @@ router.post('/', async(req, res) =>{
 			if(!isDateKey(item.date)) return errors.push(`${label}the date must look like 2026-10-21`)
 			const reason = ineligibleReason(person, team)
 			if(reason) return errors.push(label + reason)
+			const second = personById.get(String(item?.secondaryId ?? item?.secondary))
+			if(!second) return errors.push(`${label}choose a secondary on call`)
+			if(String(second._id) === String(person._id)) return errors.push(`${label}the secondary on call has to be someone other than ${person.name}`)
+			const secondReason = ineligibleReason(second, team)
+			if(secondReason) return errors.push(`${label}secondary: ${secondReason}`)
 			const {start, end} = slotTimes(item.date, slot)
 			if(end <= now) return errors.push(`${label}the ${slot} shift on ${formatDay(start)} is already over`)
-			wanted.push({team: team._id, teamName: team.name, responder: person._id, responderName: person.name, slot, date: item.date, start, end})
+			wanted.push({team: team._id, teamName: team.name, responder: person._id, responderName: person.name, secondary: second._id, secondaryName: second.name, slot, date: item.date, start, end})
 		})
 		if(notAllowed.size){
 			return res.status(403).send({error: [...notAllowed]})
@@ -143,16 +156,16 @@ router.post('/', async(req, res) =>{
 
 		// Compare with what's already scheduled for those teams, and for those people on any team
 		const teamIds = [...new Set(wanted.map(s => String(s.team)))]
-		const personIds = [...new Set(wanted.map(s => String(s.responder)))]
+		const personIds = [...new Set(wanted.flatMap(s => [String(s.responder), String(s.secondary)]))]
 		const existing = (await withNames(Shift.find({
 			end: {$gt: now},
-			$or: [{team: {$in: teamIds}}, {responder: {$in: personIds}}],
+			$or: [{team: {$in: teamIds}}, {responder: {$in: personIds}}, {secondary: {$in: personIds}}],
 		}))).map(forCheck)
 		const added = []
 		const skipped = []
 		for(const s of wanted){
 			const taken = [...existing, ...added].find(e => String(e.team) === String(s.team) && +e.start === +s.start)
-			if(taken && String(taken.responder) === String(s.responder)){
+			if(taken && String(taken.responder) === String(s.responder) && String(taken.secondary) === String(s.secondary)){
 				skipped.push(s)
 			}else if(taken){
 				errors.push(`${s.teamName} already has ${taken.responderName} on the ${s.slot} shift on ${formatDay(s.start)}. Change who covers that shift instead`)
@@ -166,19 +179,19 @@ router.post('/', async(req, res) =>{
 				const team = teams.find(t => String(t._id) === teamId)
 				errors.push(...teamProblems(team.name, after.filter(s => String(s.team) === teamId), now))
 			}
-			errors.push(...responderProblems(after.filter(s => personIds.includes(String(s.responder))), now))
+			errors.push(...responderProblems(after.filter(s => personIds.includes(String(s.responder)) || personIds.includes(String(s.secondary))), now))
 		}
 		if(errors.length){
 			return res.status(400).send({error: [...new Set(errors)]})
 		}
 
 		const created = added.length
-			? await Shift.insertMany(added.map(({teamName, responderName, ...s}) => ({...s, createdBy: me._id})))
+			? await Shift.insertMany(added.map(({teamName, responderName, secondaryName, ...s}) => ({...s, createdBy: me._id})))
 			: []
 		const saved = await withNames(Shift.find({_id: {$in: created.map(s => s._id)}})).sort({start: 1})
 		return res.status(created.length ? 201 : 200).send({
 			added: saved.map(toClient),
-			skipped: skipped.map(s => ({team: s.teamName, employeeId: s.responder, date: s.date, shift: s.slot})),
+			skipped: skipped.map(s => ({team: s.teamName, employeeId: s.responder, secondaryId: s.secondary, date: s.date, shift: s.slot})),
 		})
 	}catch(err){
 		if(err.code === 11000){
@@ -189,7 +202,7 @@ router.post('/', async(req, res) =>{
 	}
 })
 
-// Change who covers a shift (team leads). Body: { employeeId }
+// Change who covers a shift (team leads). Body: { employeeId?, secondaryId? } (primary and/or secondary)
 router.patch('/:shiftId', async(req, res) =>{
 	try{
 		const me = await currentUser(req, res)
@@ -206,26 +219,39 @@ router.patch('/:shiftId', async(req, res) =>{
 		if(shift.end <= now){
 			return res.status(400).send({error: 'This shift is already over'})
 		}
-		const personId = req.body?.employeeId ?? req.body?.responder
-		const person = isValidObjectId(personId) ? await User.findById(personId).select('name team role active') : null
+		const load = async (id) => isValidObjectId(id) ? await User.findById(id).select('name team role active') : null
+		const primaryId = req.body?.employeeId ?? req.body?.responder ?? shift.responder?._id
+		const secondaryId = req.body?.secondaryId ?? req.body?.secondary ?? shift.secondary?._id
+		const [person, second] = await Promise.all([load(primaryId), load(secondaryId)])
 		if(!person){
 			return res.status(400).send({error: 'Choose who should cover the shift'})
 		}
-		const reason = ineligibleReason(person, team)
+		if(!second){
+			return res.status(400).send({error: 'Choose a secondary on call'})
+		}
+		if(String(person._id) === String(second._id)){
+			return res.status(400).send({error: `The secondary on call has to be someone other than ${person.name}`})
+		}
+		const reason = ineligibleReason(person, team) || (ineligibleReason(second, team) && `Secondary: ${ineligibleReason(second, team)}`)
 		if(reason){
 			return res.status(400).send({error: reason})
 		}
-		if(String(shift.responder?._id) === String(person._id)){
+		if(String(shift.responder?._id) === String(person._id) && String(shift.secondary?._id) === String(second._id)){
 			return res.send(toClient(shift))
 		}
-		// The new person can't already be on call for another team at that time
-		const theirs = (await withNames(Shift.find({responder: person._id, end: {$gt: now}, _id: {$ne: shift._id}}))).map(forCheck)
-		const moved = {...forCheck(shift), responder: person._id, responderName: person.name}
+		// Neither person can be on call elsewhere at that time, and the primary can't work back to back
+		const ids = [person._id, second._id]
+		const theirs = (await withNames(Shift.find({
+			end: {$gt: now}, _id: {$ne: shift._id},
+			$or: [{responder: {$in: ids}}, {secondary: {$in: ids}}],
+		}))).map(forCheck)
+		const moved = {...forCheck(shift), responder: person._id, responderName: person.name, secondary: second._id, secondaryName: second.name}
 		const problems = responderProblems([...theirs, moved], now)
 		if(problems.length){
 			return res.status(400).send({error: problems})
 		}
 		shift.responder = person._id
+		shift.secondary = second._id
 		await shift.save()
 		return res.send(toClient(await withNames(Shift.findById(shift._id))))
 	}catch(err){

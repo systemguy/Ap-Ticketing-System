@@ -9,7 +9,7 @@ const {
 	NEXT_STATUSES, STATUS_DATES, ACTIVE_STATUSES,
 	isTicketOwner, isValidSeverity, ticketAccess, teamsLedBy, ticketTeam,
 } = require('../helpers/tickets')
-const { whoIsOnCall } = require('../helpers/shifts')
+const { onCallAssignee, MAX_ACTIVE } = require('../helpers/shifts')
 const { notifyAssigned, notifyReporter } = require('../helpers/notify')
 
 // Photos come in as image data URLs
@@ -29,7 +29,13 @@ const NO_RESPONDER = {
 	'schedule-ended': (team) => `${team}'s on-call schedule has ended`,
 	'not-covered': (team) => `Nobody is on call for ${team} right now`,
 	'responder-inactive': (team) => `The person on call for ${team} has a deactivated account`,
+	'at-capacity': (team) => `Everyone on call for ${team} already has ${MAX_ACTIVE} open incidents`,
 }
+
+// Timeline note when the secondary got the ticket because the primary was full
+const viaSecondary = (result) => result.role === 'secondary'
+	? `secondary on call (${result.loads.find(l => l.role === 'primary')?.name ?? 'the primary'} already has ${MAX_ACTIVE} open incidents)`
+	: undefined
 
 const QUEUE_ORDER = {escalationExhaustedAt: -1, severity: -1, createdAt: 1}
 
@@ -87,12 +93,14 @@ router.post('/create', async(req, res)=>{
 		if(!team){
 			reason = `No team owns ${service} yet`
 		}else{
-			const result = await whoIsOnCall(team._id, createdAt)
-			if(result.responder) assignee = result.responder
-			else reason = NO_RESPONDER[result.reason](team.name)
+			const result = await onCallAssignee(team._id, createdAt)
+			if(result.responder){
+				assignee = result.responder
+				reason = viaSecondary(result)
+			}else reason = NO_RESPONDER[result.reason](team.name)
 		}
 		events.push(assignee
-			? {type: 'auto_assigned', to: assignee.name, createdAt}
+			? {type: 'auto_assigned', to: assignee.name, comment: reason, createdAt}
 			: {type: 'auto_assigned', comment: reason, createdAt})
 
 		const ticket = await Ticket.create({
@@ -177,15 +185,17 @@ router.put('/edit/:ticketId', async(req, res) =>{
 			if(!newTeam){
 				reason = `No team owns ${service} yet`
 			}else{
-				const result = await whoIsOnCall(newTeam._id, now)
-				if(result.responder) assignee = result.responder
-				else reason = NO_RESPONDER[result.reason](newTeam.name)
+				const result = await onCallAssignee(newTeam._id, now)
+				if(result.responder){
+					assignee = result.responder
+					reason = viaSecondary(result)
+				}else reason = NO_RESPONDER[result.reason](newTeam.name)
 			}
 			Object.assign(set, {escalationLevel: 0, escalationClockAt: now})
 			update.$unset = {escalationExhaustedAt: 1, ...(assignee ? {} : {assignedTo: 1})}
 			if(assignee) set.assignedTo = assignee._id
 			update.$push.events.$each.push(assignee
-				? {type: 'auto_assigned', to: assignee.name, createdAt: now}
+				? {type: 'auto_assigned', to: assignee.name, comment: reason, createdAt: now}
 				: {type: 'auto_assigned', comment: reason, createdAt: now})
 		}
 		// Only save if nothing changed the ticket in the meantime
@@ -217,6 +227,13 @@ router.put('/update/:ticketId', async(req, res) =>{
 			return res.status(403).send({error: `Only the team that handles ${ticket.service} can change this ticket's status`})
 		}
 		const from = ticket.status
+		// Anyone on the team can acknowledge an Open ticket (that's how they take it). After that,
+		// only the person who has it, the team lead or an admin can move it along.
+		const holder = ticket.assignedTo ? String(ticket.assignedTo) : null
+		if(from !== 'Open' && !access.lead && !access.admin && holder !== String(req.accountId)){
+			const owner = holder ? await user.findById(holder).select('name') : null
+			return res.status(403).send({error: `${owner?.name ?? 'Someone else'} has this ticket. Only they, the team lead or an admin can change its status.`})
+		}
 		const allowed = NEXT_STATUSES[from] || []
 		const to = req.body?.status ?? allowed[0]
 		if(typeof to !== 'string' || !allowed.includes(to)){
@@ -298,16 +315,22 @@ router.get('/:ticketId', async(req, res) =>{
 			if(!team){
 				assignment = {canReassign: false, onCall: null, reason: `No team owns ${data.service}, so there's no one on call for it`}
 			}else{
-				const result = await whoIsOnCall(team._id)
-				const onCall = result.responder ? {_id: result.responder._id, name: result.responder.name} : null
+				const result = await onCallAssignee(team._id)
 				const current = String(data.assignedTo?._id ?? '')
+				const primary = result.loads.find(l => l.role === 'primary') ?? null
+				const secondary = result.loads.find(l => l.role === 'secondary') ?? null
+				// Who the lead can give it to: someone on call with room, who doesn't already have it
+				const target = result.loads.find(l => l.load < MAX_ACTIVE && String(l._id) !== current) ?? null
+				const holderOnCall = result.loads.find(l => String(l._id) === current)
 				assignment = {
 					team: team.name,
-					onCall,
+					onCall: target ? {_id: target._id, name: target.name, role: target.role} : null,
+					primary, secondary, max: MAX_ACTIVE,
 					until: result.shift?.end ?? null,
-					canReassign: Boolean(onCall) && String(onCall._id) !== current,
-					reason: onCall
-						? (String(onCall._id) === current ? `${onCall.name} is on call and already has this ticket` : null)
+					canReassign: Boolean(target),
+					reason: target ? null
+						: holderOnCall ? `${holderOnCall.name} is on call and already has this ticket`
+						: result.loads.length ? NO_RESPONDER['at-capacity'](team.name)
 						: NO_RESPONDER[result.reason](team.name),
 				}
 			}
@@ -316,7 +339,9 @@ router.get('/:ticketId', async(req, res) =>{
 			ticket: data,
 			role: owner && !staff ? 'reporter' : 'solver',
 			isLead: lead || admin,
-			nextStatuses: staff ? NEXT_STATUSES[data.status] || [] : [],
+			// After it's acknowledged, only whoever has it (or the lead or an admin) moves it along
+			nextStatuses: staff && (data.status === 'Open' || lead || admin || String(data.assignedTo?._id ?? '') === String(req.accountId))
+				? NEXT_STATUSES[data.status] || [] : [],
 			assignment,
 		})
 	}catch(err){
@@ -377,16 +402,25 @@ router.put('/:ticketId/assign', async(req, res) =>{
 		if(!team){
 			return res.status(409).send({error: `No team owns ${ticket.service}, so there's no one on call to assign it to`})
 		}
-		const result = await whoIsOnCall(team._id)
-		if(!result.responder){
+		const result = await onCallAssignee(team._id)
+		if(!result.loads.length){
 			return res.status(409).send({error: `${NO_RESPONDER[result.reason](team.name)}, so this ticket can't be reassigned`})
 		}
-		const target = result.responder
-		const wanted = req.body?.responderId
-		if(wanted && String(wanted) !== String(target._id)){
-			return res.status(409).send({error: `Only ${target.name} is on call for ${team.name} right now. Tickets can only go to the person on call.`})
-		}
 		const previous = ticket.assignedTo
+		// The primary or secondary on call, as long as they have fewer than MAX_ACTIVE open incidents
+		const wanted = req.body?.responderId
+		const options = result.loads.filter(l => String(l._id) !== String(previous?._id ?? ''))
+		const pick = wanted ? options.find(l => String(l._id) === String(wanted)) : options.find(l => l.load < MAX_ACTIVE)
+		if(wanted && !pick){
+			const names = result.loads.map(l => `${l.name} (${l.role})`).join(' and ')
+			return res.status(409).send({error: `Tickets can only go to whoever is on call for ${team.name} right now: ${names}.`})
+		}
+		if(!pick || pick.load >= MAX_ACTIVE){
+			return res.status(409).send({error: pick
+				? `${pick.name} already has ${MAX_ACTIVE} open incidents`
+				: `${NO_RESPONDER['at-capacity'](team.name)}, so this ticket can't be reassigned`})
+		}
+		const target = {_id: pick._id, name: pick.name}
 		if(previous && String(previous._id) === String(target._id)){
 			return res.status(409).send({error: `${target.name} already has this ticket`})
 		}
