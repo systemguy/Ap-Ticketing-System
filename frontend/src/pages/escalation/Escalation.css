@@ -59,6 +59,8 @@
 .esc-summary li { margin: 6px 0; line-height: 1.5; }
 
 .esc-buttons { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+/* Stays at the bottom of the screen while you edit, so Save and + Add level are always reachable */
+.esc-buttons-sticky { position: sticky; bottom: 0; z-index: 5; padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 16px rgba(28, 28, 28, 0.06); }
 .esc-buttons .btn { margin: 0; }
 
 .esc-nobody { color: var(--danger); }

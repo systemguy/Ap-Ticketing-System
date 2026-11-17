@@ -16,6 +16,10 @@ const NO_ONE = {
   'responder-inactive': 'The person on call has a deactivated account.',
 };
 
+// Most open incidents one on-call person gets at a time (matches MAX_ACTIVE on the backend)
+const MAX_ACTIVE = 3;
+const loadText = (p) => `${p.load} of ${MAX_ACTIVE} open incidents`;
+
 // One page per team: who's on call now and a week of shifts.
 // Responders see the teams they're on; team leads also see the teams they lead and can
 // add, change or remove shifts for them. Admins see and edit every team.
@@ -152,8 +156,17 @@ export default function SchedulePage() {
         <span className="oncall-dot" aria-hidden="true" />
         {onCall?.responder ? (
           <p>
-            <b>On call now: {onCall.responder.name}</b>
+            <b>On call now: {onCall.responder.name}</b> <span className="muted">({loadText(onCall.responder)})</span>
+            {onCall.secondary
+              ? <> · secondary <b>{onCall.secondary.name}</b> <span className="muted">({loadText(onCall.secondary)})</span></>
+              : <> · <span className="muted">no secondary on this shift</span></>}
             {onCall.shift && <> · {slotOf(onCall.shift.shift)?.label} shift until {formatTime(onCall.shift.end, true)}</>}
+            <br />
+            <span className="muted">
+              {onCall.next
+                ? <>New tickets go to <b>{onCall.next.name}</b>{onCall.next.role === 'secondary' ? ` (the primary already has ${MAX_ACTIVE})` : ''}.</>
+                : `Both have ${MAX_ACTIVE} open incidents, so new tickets wait unassigned and escalate.`}
+            </span>
           </p>
         ) : (
           <p><b>{onCall ? NO_ONE[onCall.reason] || 'Nobody is on call right now.' : 'Checking who’s on call…'}</b></p>
@@ -207,11 +220,13 @@ export default function SchedulePage() {
                             title="Change or remove this shift"
                           >
                             {s.responder?.name || 'Unknown'}
+                            <span className="second-label">{s.secondary ? `2nd: ${s.secondary.name}` : 'no secondary'}</span>
                             {isNow(s) && <span className="now-label">on call</span>}
                           </button>
                         ) : (
                           <span className={`person ${isNow(s) ? 'is-now' : ''} ${over ? 'is-over' : ''}`}>
                             {s.responder?.name || 'Unknown'}
+                            {s.secondary && <span className="second-label">2nd: {s.secondary.name}</span>}
                             {isNow(s) && <span className="now-label">on call</span>}
                           </span>
                         )
@@ -235,7 +250,7 @@ export default function SchedulePage() {
 
       <p className="muted schedule-foot">
         {canEdit
-          ? 'Click a name to change who covers that shift or remove it. Empty slots can be filled with + Add.'
+          ? 'Each shift has a primary and a secondary on call. Click a shift to change either one or remove it. Empty slots can be filled with + Add.'
           : `Only ${team.lead ? team.lead.name : 'the team lead'} can change this schedule.`}
         {' '}Need the tickets? <Link to="/incidents">Open the team queue</Link>.
       </p>
@@ -275,6 +290,7 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
   const [date, setDate] = useState(initial.date);
   const [slot, setSlot] = useState(initial.slot || 'morning');
   const [employeeId, setEmployeeId] = useState('');
+  const [secondaryId, setSecondaryId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -285,7 +301,7 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
     try {
       // One shift at a time: the backend refuses any schedule with a gap, so shifts are added
       // in order, each one starting where the team's coverage currently ends.
-      const res = await addShifts([{ team: team.name, employeeId, date, shift: slot }]);
+      const res = await addShifts([{ team: team.name, employeeId, secondaryId, date, shift: slot }]);
       const who = staff.find((p) => p._id === employeeId)?.name || 'They';
       const when = `${slotOf(slot).label.toLowerCase()} shift on ${formatDay(date, { weekday: 'short', month: 'short', day: 'numeric' })}`;
       onSaved(res.added?.length
@@ -313,7 +329,7 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
           </div>
         </div>
         <div className="form-group">
-          <label htmlFor="ns-who">Covered by</label>
+          <label htmlFor="ns-who">Primary on call</label>
           <select id="ns-who" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required>
             <option value="" disabled>Choose a responder</option>
             {staff.map((p) => (
@@ -324,11 +340,21 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
           </select>
           {!staff.length && <p className="field-hint">Loading the team roster…</p>}
         </div>
-        <p className="field-hint">The schedule is checked before anything is saved: no gaps, no double-booking, and nobody on two teams at once.</p>
+        <div className="form-group">
+          <label htmlFor="ns-second">Secondary on call</label>
+          <select id="ns-second" value={secondaryId} onChange={(e) => setSecondaryId(e.target.value)} required>
+            <option value="" disabled>Choose a backup</option>
+            {staff.filter((p) => p._id !== employeeId).map((p) => (
+              <option key={p._id} value={p._id}>{p.name}</option>
+            ))}
+          </select>
+          <p className="field-hint">Takes new tickets when the primary already has {MAX_ACTIVE} open incidents.</p>
+        </div>
+        <p className="field-hint">The schedule is checked before anything is saved: no gaps, no double-booking, nobody on two teams at once, and nobody primary on back-to-back shifts.</p>
         <ErrorList error={error} />
         <div className="modal-actions">
           <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="submit" className="btn" disabled={busy || !employeeId}>{busy ? 'Saving…' : 'Add shift'}</button>
+          <button type="submit" className="btn" disabled={busy || !employeeId || !secondaryId}>{busy ? 'Saving…' : 'Add shift'}</button>
         </div>
       </form>
     </Modal>
@@ -337,21 +363,24 @@ function NewShiftDialog({ team, staff, initial, today, onClose, onSaved }) {
 
 function EditShiftDialog({ shift, staff, onClose, onSaved }) {
   const [employeeId, setEmployeeId] = useState(String(shift.employeeId));
+  const [secondaryId, setSecondaryId] = useState(shift.secondaryId ? String(shift.secondaryId) : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const label = `${slotOf(shift.shift)?.label} shift, ${formatDay(shift.date, { weekday: 'long', month: 'short', day: 'numeric' })}`;
-  const options = staff.some((p) => p._id === String(shift.employeeId))
-    ? staff
-    : [{ _id: String(shift.employeeId), name: shift.responder?.name || 'Current responder' }, ...staff];
+  const known = (id, name, list) => (!id || list.some((p) => p._id === id) ? list : [{ _id: id, name }, ...list]);
+  const options = known(String(shift.employeeId), shift.responder?.name || 'Current responder', staff);
+  const secondOptions = known(shift.secondaryId ? String(shift.secondaryId) : '', shift.secondary?.name || 'Current secondary', staff)
+    .filter((p) => p._id !== employeeId);
+  const unchanged = employeeId === String(shift.employeeId) && secondaryId === String(shift.secondaryId ?? '');
 
   async function save(e) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const updated = await changeShift(shift._id, employeeId);
-      onSaved(`${label}: now covered by ${updated.responder?.name || 'the new responder'}.`);
+      const updated = await changeShift(shift._id, { employeeId, secondaryId });
+      onSaved(`${label}: ${updated.responder?.name || 'the new responder'} on call, ${updated.secondary?.name || 'no one'} as secondary.`);
     } catch (err) {
       setError(err);
       setBusy(false);
@@ -375,9 +404,16 @@ function EditShiftDialog({ shift, staff, onClose, onSaved }) {
     <Modal title={label} onClose={onClose} busy={busy}>
       <form onSubmit={save}>
         <div className="form-group">
-          <label htmlFor="es-who">Covered by</label>
+          <label htmlFor="es-who">Primary on call</label>
           <select id="es-who" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
             {options.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label htmlFor="es-second">Secondary on call</label>
+          <select id="es-second" value={secondaryId} onChange={(e) => setSecondaryId(e.target.value)} required>
+            <option value="" disabled>Choose a backup</option>
+            {secondOptions.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}
           </select>
         </div>
         <ErrorList error={error} />
@@ -394,7 +430,7 @@ function EditShiftDialog({ shift, staff, onClose, onSaved }) {
             <button type="button" className="link-button" onClick={() => setConfirmRemove(true)} disabled={busy}>Remove shift</button>
             <span>
               <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
-              <button type="submit" className="btn" disabled={busy || employeeId === String(shift.employeeId)}>
+              <button type="submit" className="btn" disabled={busy || unchanged || !secondaryId}>
                 {busy ? 'Saving…' : 'Save'}
               </button>
             </span>
