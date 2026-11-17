@@ -11,7 +11,9 @@ const qs = (params) =>
 export const listShifts = ({ team, from, to }) =>
   apiFetch(`/shifts?${qs({ team, from, to })}`).then((d) => d?.shifts || []);
 
-// Who is on call for a team right now: { responder: {_id, name} | null, reason, shift }
+// Who is on call for a team right now:
+// { responder: {_id, name, load} | null, secondary: {_id, name, load} | null, next, reason, shift }
+// load = how many open incidents they have; next = who the next new ticket goes to
 export const getOnCall = (team) => apiFetch(`/shifts/on-call?${qs({ team })}`);
 
 // Every team and its lead: [{ _id, name, lead: { _id, name } | null }]
@@ -21,13 +23,13 @@ export const listTeams = () => apiFetch('/teams').then((d) => d?.teams || []);
 export const listStaff = () => apiFetch('/users?role=staff').then((d) => d?.staff || []);
 
 // Team leads only. All or nothing: a bad schedule throws with every problem in err.message.
-// shifts: [{ team, employeeId, date, shift }]  ->  { added: [...], skipped: [...] }
+// shifts: [{ team, employeeId, secondaryId, date, shift }]  ->  { added: [...], skipped: [...] }
 export const addShifts = (shifts) =>
   apiFetch('/shifts', { method: 'POST', body: JSON.stringify({ shifts }) });
 
-// Team leads only: change who covers a shift
-export const changeShift = (id, employeeId) =>
-  apiFetch(`/shifts/${id}`, { method: 'PATCH', body: JSON.stringify({ employeeId }) });
+// Team leads only: change the primary and/or secondary on call for a shift
+export const changeShift = (id, { employeeId, secondaryId }) =>
+  apiFetch(`/shifts/${id}`, { method: 'PATCH', body: JSON.stringify({ employeeId, secondaryId }) });
 
 // Team leads only: refused if it would leave the team without coverage
 export const removeShift = (id) => apiFetch(`/shifts/${id}`, { method: 'DELETE' });

@@ -14,7 +14,7 @@ const EscalationPolicy = require('../models/escalationPolicy')
 const Ticket = require('../models/tickets')
 const Service = require('../models/services')
 const User = require('../models/user')
-const { whoIsOnCall } = require('./shifts')
+const { onCallAssignee, MAX_ACTIVE } = require('./shifts')
 const { notifyAssigned, notifyFinal } = require('./notify')
 
 // Severity 1-4 -> name used for its time frame
@@ -39,6 +39,7 @@ const NOBODY = {
 	'schedule-ended': (team) => `${team}'s on-call schedule has ended`,
 	'not-covered': (team) => `nobody is on call for ${team}`,
 	'responder-inactive': (team) => `the person on call for ${team} is deactivated`,
+	'at-capacity': (team) => `everyone on call for ${team} already has ${MAX_ACTIVE} open incidents`,
 	'no-lead': (team) => `${team} has no team lead`,
 	'lead-inactive': (team) => `${team}'s lead is deactivated`,
 	'person-missing': () => 'the person chosen for this level no longer has an account',
@@ -60,8 +61,9 @@ function personProblem(person, team) {
 // Returns { user } or { user: null, reason } when nobody can take it.
 async function resolveLevel(level, team, at = new Date(), people = new Map()) {
 	if (level.assignTo === 'on-call') {
-		const result = await whoIsOnCall(team._id, at)
-		if (result.responder) return { user: { _id: result.responder._id, name: result.responder.name }, until: result.shift?.end ?? null }
+		// The primary on call, or the secondary if the primary already has MAX_ACTIVE open incidents
+		const result = await onCallAssignee(team._id, at)
+		if (result.responder) return { user: { _id: result.responder._id, name: result.responder.name }, until: result.shift?.end ?? null, role: result.role }
 		return { user: null, reason: NOBODY[result.reason](team.name) }
 	}
 	if (level.assignTo === 'lead') {
@@ -184,6 +186,7 @@ async function escalateTicket(ticket, policy, now, people, admins) {
 	let clock = ticket.escalationClockAt ?? ticket.createdAt
 	let holder = ticket.assignedTo ? { _id: ticket.assignedTo._id, name: ticket.assignedTo.name } : null
 	let assignedAtLevel = null // the level that gave the ticket to its current holder
+	let notifyLevel = null // the last level that pointed at the current holder (new or not)
 	let final = false
 	const events = []
 
@@ -203,10 +206,12 @@ async function escalateTicket(ticket, policy, now, people, admins) {
 		} else if (holder && String(holder._id) === String(target.user._id)) {
 			event.to = target.user.name
 			event.comment = `${target.user.name} already had it`
+			notifyLevel = next.level
 		} else {
 			event.to = target.user.name
 			holder = target.user
 			assignedAtLevel = next.level
+			notifyLevel = next.level
 		}
 		events.push(event)
 		level = next.level
@@ -242,9 +247,10 @@ async function escalateTicket(ticket, policy, now, people, admins) {
 	if (final) {
 		await notifyFinal(updated, team.name, [team.lead?._id, ...admins()])
 		console.log(`[escalation] ${ticket._id} reached the final step for ${team.name}`)
-	} else if (assignedAtLevel) {
-		await notifyAssigned(updated, holder._id, { how: 'escalation', level: assignedAtLevel })
-		console.log(`[escalation] ${ticket._id} -> level ${assignedAtLevel} (${holder.name})`)
+	} else if (notifyLevel && holder) {
+		// Notify whoever has it now, even if they already had it: it moved up a level and is more urgent
+		await notifyAssigned(updated, holder._id, { how: 'escalation', level: notifyLevel })
+		console.log(`[escalation] ${ticket._id} -> level ${notifyLevel} (${holder.name})`)
 	}
 	return true
 }

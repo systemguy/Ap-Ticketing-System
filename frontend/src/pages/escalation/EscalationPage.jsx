@@ -453,7 +453,7 @@ export default function EscalationPage() {
             )}
 
             {canEdit && (
-              <div className="esc-buttons">
+              <div className="esc-buttons esc-buttons-sticky">
                 <button type="submit" className="btn" disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save policy'}</button>
                 {levels.length < (data.limits?.levels ?? 5) && (
                   <button type="button" className="btn btn-outline" onClick={addLevel} disabled={saving}>+ Add level</button>

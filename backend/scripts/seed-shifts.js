@@ -41,8 +41,9 @@ const TEAMS = {
 // A service no team owns, for the "service has no owning team" case
 const UNOWNED_SERVICE = 'general request'
 
-// Six responders. Morgan leads HVAC, Plumbing and Electrical and is on their rota.
-// Jordan leads OIT and is not on the rota.
+// Morgan leads HVAC, Plumbing and Electrical; Jordan leads OIT. Neither is on the rota.
+// Each team has three responders who rotate, so every shift has a primary and a secondary
+// on call and nobody is primary on back-to-back shifts.
 const ROSTER = [
 	{ key: 'morgan', name: 'Morgan Lee', email: 'morgan.lee@residence.test', team: 'HVAC', leads: ['HVAC', 'Plumbing', 'Electrical'] },
 	{ key: 'jordan', name: 'Jordan Price', email: 'jordan.price@residence.test', team: 'OIT', leads: ['OIT'] },
@@ -50,18 +51,34 @@ const ROSTER = [
 	{ key: 'jane', name: 'Jane Foster', email: 'jane.foster@residence.test', team: 'Plumbing' },
 	{ key: 'sam', name: 'Sam Ortiz', email: 'sam.ortiz@residence.test', team: 'Electrical' },
 	{ key: 'nina', name: 'Nina Shah', email: 'nina.shah@residence.test', team: 'OIT' },
+	{ key: 'hank', name: 'Hank Hill', email: 'hank.hill@residence.test', team: 'HVAC' },
+	{ key: 'quinn', name: 'Quinn Diaz', email: 'quinn.diaz@residence.test', team: 'HVAC' },
+	{ key: 'priya', name: 'Priya Nair', email: 'priya.nair@residence.test', team: 'Plumbing' },
+	{ key: 'omar', name: 'Omar Reyes', email: 'omar.reyes@residence.test', team: 'Plumbing' },
+	{ key: 'lena', name: 'Lena Park', email: 'lena.park@residence.test', team: 'Electrical' },
+	{ key: 'victor', name: 'Victor Cole', email: 'victor.cole@residence.test', team: 'Electrical' },
+	{ key: 'kai', name: 'Kai Turner', email: 'kai.turner@residence.test', team: 'OIT' },
+	{ key: 'rosa', name: 'Rosa Lima', email: 'rosa.lima@residence.test', team: 'OIT' },
 ]
-const MEMBER = { HVAC: 'tim', Plumbing: 'jane', Electrical: 'sam', OIT: 'nina' }
+const ROTA = {
+	HVAC: ['tim', 'hank', 'quinn'],
+	Plumbing: ['jane', 'priya', 'omar'],
+	Electrical: ['sam', 'lena', 'victor'],
+	OIT: ['nina', 'kai', 'rosa'],
+}
 
-// Who covers a slot. Morgan takes one slot per team each day, never two at once, alternating
-// between even and odd days. With --swap, Morgan takes the HVAC mornings (Tim's otherwise).
+// Who covers a slot: the team's three responders take turns as primary, and the next one in
+// line is secondary. Consecutive slots (including overnight into the next morning) always have
+// different primaries, and each person's slot moves from day to day.
+// With --swap, Morgan is primary for the HVAC mornings (never back to back: mornings are 16 h apart).
 function coverFor(team, slot, date) {
-	if (team === 'OIT') return 'nina'
-	const even = dayNumber(date) % 2 === 0
-	const morgan = SWAP
-		? { HVAC: 'morning', Plumbing: even ? 'overnight' : null, Electrical: even ? null : 'evening' }
-		: { HVAC: even ? 'evening' : 'overnight', Plumbing: even ? 'overnight' : 'morning', Electrical: even ? 'morning' : 'evening' }
-	return morgan[team] === slot ? 'morgan' : MEMBER[team]
+	const rota = ROTA[team]
+	// Shifting by one each day means nobody gets the same slot every day
+	const k = dayNumber(date) * 4 + Object.keys(SLOTS).indexOf(slot)
+	const primary = SWAP && team === 'HVAC' && slot === 'morning' ? 'morgan' : rota[k % 3]
+	let secondary = rota[(k + 1) % 3]
+	if (secondary === primary) secondary = rota[(k + 2) % 3]
+	return { primary, secondary }
 }
 
 // The slot happening right now, so coverage starts at this moment
@@ -89,8 +106,10 @@ function buildPlan(now, teamIds, people) {
 			const { start, end } = slotTimes(date, slot)
 			for (const team of Object.keys(TEAMS)) {
 				if (team === END_TEAM && end > endOfEndDate) continue
-				const person = people[coverFor(team, slot, date)]
-				plan.push({ team: teamIds[team], teamName: team, responder: person.id, responderName: person.name, slot, date, start, end })
+				const cover = coverFor(team, slot, date)
+				const person = people[cover.primary]
+				const second = people[cover.secondary]
+				plan.push({ team: teamIds[team], teamName: team, responder: person.id, responderName: person.name, secondary: second.id, secondaryName: second.name, slot, date, start, end })
 			}
 		}
 	}
@@ -155,14 +174,16 @@ async function main() {
 
 		const plan = buildPlan(now, teamIds, people)
 		const removed = await Shift.deleteMany({ team: { $in: Object.values(teamIds) }, end: { $gt: now } })
-		await Shift.insertMany(plan.map(({ teamName, responderName, ...s }) => s))
+		await Shift.insertMany(plan.map(({ teamName, responderName, secondaryName, ...s }) => s))
 		console.log(`Replaced ${removed.deletedCount} current and upcoming shifts with ${plan.length}.`)
 	}
 
-	console.log('\nLeads: Morgan Lee leads HVAC, Plumbing and Electrical (on the rota). Jordan Price leads OIT (not on the rota).')
+	console.log('\nLeads: Morgan Lee leads HVAC, Plumbing and Electrical. Jordan Price leads OIT. Leads are not on the rota.')
 	for (const team of Object.keys(TEAMS)) {
 		const own = preview.filter((s) => s.teamName === team)
-		console.log(`  ${team.padEnd(11)} ${String(own.length).padStart(2)} shifts, ${when(own[0].start)} to ${when(own.at(-1).end)}`)
+		console.log(own.length
+			? `  ${team.padEnd(11)} ${String(own.length).padStart(2)} shifts, ${when(own[0].start)} to ${when(own.at(-1).end)}`
+			: `  ${team.padEnd(11)}  0 shifts (schedule ended ${END_DATE})`)
 	}
 	console.log(`Service with no owning team: "${UNOWNED_SERVICE}"`)
 	if (SWAP) console.log('Swap: Morgan has the HVAC mornings.')

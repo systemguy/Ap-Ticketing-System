@@ -2,6 +2,11 @@
 // shift, who can change a team's schedule, and who is on call (used for auto-assignment).
 const Shift = require('../models/shift')
 const Team = require('../models/team')
+const Ticket = require('../models/tickets')
+
+// The most open incidents (Open, Acknowledged, Investigating) one on-call solver gets at a time
+const MAX_ACTIVE = 3
+const ACTIVE = ['Open', 'Acknowledged', 'Investigating']
 const { centralMoment, addDays, formatRange } = require('./time')
 
 // The three shifts that cover each day, in Central time. Overnight ends the next morning.
@@ -43,29 +48,53 @@ function teamProblems(teamName, shifts, now) {
 	return problems
 }
 
-// A responder can only be on call for one team at a time.
-// shifts: [{ team, teamName, responder, responderName, start, end }]
+// Each shift puts two people on call: the primary and (if set) the secondary.
+// shift: { team, teamName, responder, responderName, secondary, secondaryName, start, end }
+function dutiesOf(shift) {
+	const duties = [{ ...shift, person: shift.responder, personName: shift.responderName, role: 'primary' }]
+	if (shift.secondary) duties.push({ ...shift, person: shift.secondary, personName: shift.secondaryName, role: 'secondary' })
+	return duties
+}
+
+// Rules for people across the whole schedule:
+//   - nobody is primary and secondary on the same shift
+//   - nobody is on call for two teams at once
+//   - nobody is primary on back-to-back shifts (one ends when the next begins)
+// shifts: forCheck() objects
 function responderProblems(shifts, now) {
-	const byResponder = new Map()
+	const byPerson = new Map()
 	for (const s of shifts) {
 		if (s.end <= now) continue
-		const key = String(s.responder)
-		if (!byResponder.has(key)) byResponder.set(key, [])
-		byResponder.get(key).push(s)
-	}
-	const problems = []
-	for (const list of byResponder.values()) {
-		list.sort((a, b) => a.start - b.start)
-		let prev = null
-		for (const s of list) {
-			if (prev && s.start < prev.end && String(s.team) !== String(prev.team)) {
-				const until = s.end < prev.end ? s.end : prev.end
-				problems.push(`${s.responderName} can't be on call for ${prev.teamName} and ${s.teamName} at the same time, ${formatRange(s.start, until)}`)
-			}
-			if (!prev || s.end > prev.end) prev = s
+		for (const d of dutiesOf(s)) {
+			const key = String(d.person)
+			if (!byPerson.has(key)) byPerson.set(key, [])
+			byPerson.get(key).push(d)
 		}
 	}
-	return problems
+	const problems = []
+	for (const list of byPerson.values()) {
+		list.sort((a, b) => a.start - b.start || (a.role === 'primary' ? -1 : 1))
+		let prev = null
+		let lastPrimary = null
+		for (const d of list) {
+			if (prev && d.start < prev.end) {
+				if (String(d.team) === String(prev.team)) {
+					problems.push(`${d.personName} can't be both primary and secondary on ${d.teamName}'s shift ${formatRange(d.start, d.end)}`)
+				} else {
+					const until = d.end < prev.end ? d.end : prev.end
+					problems.push(`${d.personName} can't be on call for ${prev.teamName} and ${d.teamName} at the same time, ${formatRange(d.start, until)}`)
+				}
+			}
+			if (d.role === 'primary') {
+				if (lastPrimary && +lastPrimary.end === +d.start) {
+					problems.push(`${d.personName} can't be primary on back-to-back shifts (${formatRange(lastPrimary.start, lastPrimary.end)} and ${formatRange(d.start, d.end)}). Give one of them to someone else`)
+				}
+				lastPrimary = d
+			}
+			if (!prev || d.end > prev.end) prev = d
+		}
+	}
+	return [...new Set(problems)]
 }
 
 // Why someone can't go on a team's shifts, or null if they can. They must be active staff
@@ -103,16 +132,42 @@ const findTeam = (teams, value) =>
 //     'schedule-ended'      its last shift is over
 //     'not-covered'         nothing covers that moment (later shifts exist)
 //     'responder-inactive'  the person on shift was deactivated (shift is included)
+// secondary is the shift's secondary on call (null if none or deactivated).
 async function whoIsOnCall(teamId, at = new Date()) {
 	const shift = await Shift.findOne({ team: teamId, start: { $lte: at }, end: { $gt: at } })
 		.populate('responder', 'name email active')
+		.populate('secondary', 'name email active')
 	if (shift) {
-		if (!shift.responder || shift.responder.active === false) return { responder: null, reason: 'responder-inactive', shift }
-		return { responder: shift.responder, shift }
+		const secondary = shift.secondary && shift.secondary.active !== false ? shift.secondary : null
+		if (!shift.responder || shift.responder.active === false) return { responder: null, secondary, reason: 'responder-inactive', shift }
+		return { responder: shift.responder, secondary, shift }
 	}
 	if (await Shift.exists({ team: teamId, end: { $gt: at } })) return { responder: null, reason: 'not-covered' }
 	const hadShifts = await Shift.exists({ team: teamId })
 	return { responder: null, reason: hadShifts ? 'schedule-ended' : 'no-schedule' }
+}
+
+// How many open incidents (Open, Acknowledged, Investigating) a person has right now
+const activeLoad = (userId) => Ticket.countDocuments({ assignedTo: userId, status: { $in: ACTIVE } })
+
+// Who should get a new ticket for a team right now: the primary on call, unless they already
+// have MAX_ACTIVE open incidents; then the secondary, under the same limit.
+//   { responder, role: 'primary' | 'secondary', shift, loads }   someone can take it
+//   { responder: null, reason, shift?, loads }                    nobody can
+// reason is a whoIsOnCall reason, or 'at-capacity' when everyone on call is full.
+// loads: [{ _id, name, role, load }] for the people on call
+async function onCallAssignee(teamId, at = new Date()) {
+	const result = await whoIsOnCall(teamId, at)
+	const people = [
+		result.responder && { person: result.responder, role: 'primary' },
+		result.secondary && { person: result.secondary, role: 'secondary' },
+	].filter(Boolean)
+	const loads = await Promise.all(people.map(async (p) => ({ _id: p.person._id, name: p.person.name, role: p.role, load: await activeLoad(p.person._id) })))
+	if (!people.length) return { responder: null, reason: result.reason, shift: result.shift, loads }
+	const free = loads.find((l) => l.load < MAX_ACTIVE)
+	if (!free) return { responder: null, reason: 'at-capacity', shift: result.shift, loads }
+	const chosen = people.find((p) => String(p.person._id) === String(free._id))
+	return { responder: chosen.person, role: chosen.role, shift: result.shift, loads }
 }
 
 // What the schedule pages get for each shift. employeeId and shift match the frontend's names.
@@ -125,6 +180,8 @@ function toClient(shift) {
 		shift: s.slot,
 		employeeId: s.responder?._id ?? s.responder,
 		responder: s.responder,
+		secondaryId: s.secondary?._id ?? s.secondary ?? null,
+		secondary: s.secondary ?? null,
 		start: s.start,
 		end: s.end,
 		createdBy: s.createdBy ?? null,
@@ -140,6 +197,8 @@ const forCheck = (s) => ({
 	teamName: s.team?.name,
 	responder: s.responder?._id ?? s.responder,
 	responderName: s.responder?.name ?? 'a deleted account',
+	secondary: s.secondary?._id ?? s.secondary ?? null,
+	secondaryName: s.secondary?.name ?? 'a deleted account',
 	slot: s.slot,
 	date: s.date,
 	start: s.start,
@@ -147,6 +206,6 @@ const forCheck = (s) => ({
 })
 
 module.exports = {
-	SLOTS, slotTimes, teamProblems, responderProblems, ineligibleReason,
-	canManage, visibleTeams, findTeam, whoIsOnCall, toClient, forCheck,
+	SLOTS, MAX_ACTIVE, slotTimes, teamProblems, responderProblems, ineligibleReason,
+	canManage, visibleTeams, findTeam, whoIsOnCall, onCallAssignee, activeLoad, toClient, forCheck,
 }

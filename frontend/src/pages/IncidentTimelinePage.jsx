@@ -68,7 +68,7 @@ function describe(event) {
     case 'auto_assigned':
       // Added when the ticket is filed
       return event.to
-        ? `Assigned automatically to ${nameOf(event.to)}, who was on call`
+        ? `Assigned automatically to ${nameOf(event.to)}, ${event.comment ? `the ${event.comment}` : 'who was on call'}`
         : `Not assigned automatically: ${event.comment || 'nobody was on call'}`;
     case 'escalated': {
       // Written by the escalation timer, so there's no actor; comment says why nobody new got it
@@ -333,8 +333,9 @@ export default function IncidentTimelinePage() {
             <h2 id="assign-heading" className="pf-assign-title">Assignment</h2>
             <p className="pf-assign-line">
               {ticket.assignedTo ? <>Assigned to <b>{nameOf(ticket.assignedTo)}</b></> : <>Not assigned yet</>}
-              {data.assignment.onCall && (
-                <> · On call for {data.assignment.team} now: <b>{data.assignment.onCall.name}</b>
+              {data.assignment.primary && (
+                <> · On call for {data.assignment.team} now: <b>{data.assignment.primary.name}</b> ({data.assignment.primary.load}/{data.assignment.max} open)
+                  {data.assignment.secondary && <>, secondary <b>{data.assignment.secondary.name}</b> ({data.assignment.secondary.load}/{data.assignment.max} open)</>}
                   {data.assignment.until && <> until {formatTime(data.assignment.until, true)}</>}
                 </>
               )}
@@ -431,8 +432,8 @@ export default function IncidentTimelinePage() {
         <Modal title={ticket.assignedTo ? 'Reassign this ticket?' : 'Assign this ticket?'} onClose={() => setReassigning(false)} busy={busy}>
           <p>
             {ticket.assignedTo
-              ? <>This moves the ticket from <b>{nameOf(ticket.assignedTo)}</b> to <b>{data.assignment.onCall.name}</b>, who is on call for {data.assignment.team} right now.</>
-              : <>This gives the ticket to <b>{data.assignment.onCall.name}</b>, who is on call for {data.assignment.team} right now.</>}
+              ? <>This moves the ticket from <b>{nameOf(ticket.assignedTo)}</b> to <b>{data.assignment.onCall.name}</b>, the {data.assignment.onCall.role} on call for {data.assignment.team} right now.</>
+              : <>This gives the ticket to <b>{data.assignment.onCall.name}</b>, the {data.assignment.onCall.role} on call for {data.assignment.team} right now.</>}
             {' '}The status stays {formatStatus(ticket.status)}, and the timeline records the time, who made the change, and the previous and new responder.
           </p>
           <div className="modal-actions">
