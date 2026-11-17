@@ -9,7 +9,7 @@ const {
 	NEXT_STATUSES, STATUS_DATES, ACTIVE_STATUSES,
 	isTicketOwner, isValidSeverity, ticketAccess, teamsLedBy, ticketTeam,
 } = require('../helpers/tickets')
-const { onCallAssignee, MAX_ACTIVE } = require('../helpers/shifts')
+const { onCallAssignee, withTeamLock, MAX_ACTIVE } = require('../helpers/shifts')
 const { notifyAssigned, notifyReporter } = require('../helpers/notify')
 
 // Photos come in as image data URLs
@@ -86,27 +86,34 @@ router.post('/create', async(req, res)=>{
 		// The first timeline entry records who filed the ticket
 		const events = [{type: 'created', actor: userPosted, createdAt}]
 
-		// Assign to whoever is on call
+		// Assign to whoever is on call. Picking them and saving the ticket happen under the team's
+		// lock, so a burst of new tickets can't push anyone past MAX_ACTIVE.
 		const team = await ticketTeam({service})
 		let assignee = null
 		let reason = null
+		const save = () => {
+			events.push(assignee
+				? {type: 'auto_assigned', to: assignee.name, comment: reason, createdAt}
+				: {type: 'auto_assigned', comment: reason, createdAt})
+			return Ticket.create({
+				userPosted, title, description, service, unit, severity, type: type || service, status, createdAt, userComment,
+				resolved: false, events, assignedTo: assignee?._id, photo: photo || undefined,
+			})
+		}
+		let ticket
 		if(!team){
 			reason = `No team owns ${service} yet`
+			ticket = await save()
 		}else{
-			const result = await onCallAssignee(team._id, createdAt)
-			if(result.responder){
-				assignee = result.responder
-				reason = viaSecondary(result)
-			}else reason = NO_RESPONDER[result.reason](team.name)
+			ticket = await withTeamLock(team._id, async () => {
+				const result = await onCallAssignee(team._id, createdAt)
+				if(result.responder){
+					assignee = result.responder
+					reason = viaSecondary(result)
+				}else reason = NO_RESPONDER[result.reason](team.name)
+				return save()
+			})
 		}
-		events.push(assignee
-			? {type: 'auto_assigned', to: assignee.name, comment: reason, createdAt}
-			: {type: 'auto_assigned', comment: reason, createdAt})
-
-		const ticket = await Ticket.create({
-			userPosted, title, description, service, unit, severity, type: type || service, status, createdAt, userComment,
-			resolved: false, events, assignedTo: assignee?._id, photo: photo || undefined,
-		})
 		if(assignee) await notifyAssigned(ticket, assignee._id, {how: 'on-call'})
 
 		const {photo: _photo, ...plain} = ticket.toObject()
@@ -177,32 +184,37 @@ router.put('/edit/:ticketId', async(req, res) =>{
 		// person and restart escalation. Not allowed once a team has acknowledged it.
 		const [oldTeam, newTeam] = await Promise.all([ticketTeam(ticket), ticketTeam({service})])
 		let assignee = null
-		if(String(oldTeam?._id ?? '') !== String(newTeam?._id ?? '')){
-			if(ticket.status !== 'Open'){
-				return res.status(409).send({error: `${oldTeam?.name ?? 'The team'} is already working on this ticket, so its service can't be moved to another team. Add a comment instead.`})
-			}
-			let reason = null
-			if(!newTeam){
-				reason = `No team owns ${service} yet`
-			}else{
-				const result = await onCallAssignee(newTeam._id, now)
-				if(result.responder){
-					assignee = result.responder
-					reason = viaSecondary(result)
-				}else reason = NO_RESPONDER[result.reason](newTeam.name)
-			}
-			Object.assign(set, {escalationLevel: 0, escalationClockAt: now})
-			update.$unset = {escalationExhaustedAt: 1, ...(assignee ? {} : {assignedTo: 1})}
-			if(assignee) set.assignedTo = assignee._id
-			update.$push.events.$each.push(assignee
-				? {type: 'auto_assigned', to: assignee.name, comment: reason, createdAt: now}
-				: {type: 'auto_assigned', comment: reason, createdAt: now})
+		const moving = String(oldTeam?._id ?? '') !== String(newTeam?._id ?? '')
+		if(moving && ticket.status !== 'Open'){
+			return res.status(409).send({error: `${oldTeam?.name ?? 'The team'} is already working on this ticket, so its service can't be moved to another team. Add a comment instead.`})
 		}
-		// Only save if nothing changed the ticket in the meantime
-		const updated = await Ticket.findOneAndUpdate(
-			{_id: ticket._id, status: ticket.status, escalationLevel: ticket.escalationLevel ? ticket.escalationLevel : {$in: [0, null]}},
-			update,
-			{returnDocument: 'after'})
+		const save = async () => {
+			if(moving){
+				let reason = null
+				if(!newTeam){
+					reason = `No team owns ${service} yet`
+				}else{
+					const result = await onCallAssignee(newTeam._id, now)
+					if(result.responder){
+						assignee = result.responder
+						reason = viaSecondary(result)
+					}else reason = NO_RESPONDER[result.reason](newTeam.name)
+				}
+				Object.assign(set, {escalationLevel: 0, escalationClockAt: now})
+				update.$unset = {escalationExhaustedAt: 1, ...(assignee ? {} : {assignedTo: 1})}
+				if(assignee) set.assignedTo = assignee._id
+				update.$push.events.$each.push(assignee
+					? {type: 'auto_assigned', to: assignee.name, comment: reason, createdAt: now}
+					: {type: 'auto_assigned', comment: reason, createdAt: now})
+			}
+			// Only save if nothing changed the ticket in the meantime
+			return Ticket.findOneAndUpdate(
+				{_id: ticket._id, status: ticket.status, escalationLevel: ticket.escalationLevel ? ticket.escalationLevel : {$in: [0, null]}},
+				update,
+				{returnDocument: 'after'})
+		}
+		// Moving to another team picks its on-call person, so it waits for that team's lock
+		const updated = moving && newTeam ? await withTeamLock(newTeam._id, save) : await save()
 		if(!updated){
 			return res.status(409).send({error: 'Someone else just changed this ticket. Reload and try again.'})
 		}
@@ -402,46 +414,54 @@ router.put('/:ticketId/assign', async(req, res) =>{
 		if(!team){
 			return res.status(409).send({error: `No team owns ${ticket.service}, so there's no one on call to assign it to`})
 		}
-		const result = await onCallAssignee(team._id)
-		if(!result.loads.length){
-			return res.status(409).send({error: `${NO_RESPONDER[result.reason](team.name)}, so this ticket can't be reassigned`})
-		}
 		const previous = ticket.assignedTo
-		// The primary or secondary on call, as long as they have fewer than MAX_ACTIVE open incidents
-		const wanted = req.body?.responderId
-		const options = result.loads.filter(l => String(l._id) !== String(previous?._id ?? ''))
-		const pick = wanted ? options.find(l => String(l._id) === String(wanted)) : options.find(l => l.load < MAX_ACTIVE)
-		if(wanted && !pick){
-			const names = result.loads.map(l => `${l.name} (${l.role})`).join(' and ')
-			return res.status(409).send({error: `Tickets can only go to whoever is on call for ${team.name} right now: ${names}.`})
-		}
-		if(!pick || pick.load >= MAX_ACTIVE){
-			return res.status(409).send({error: pick
-				? `${pick.name} already has ${MAX_ACTIVE} open incidents`
-				: `${NO_RESPONDER['at-capacity'](team.name)}, so this ticket can't be reassigned`})
-		}
-		const target = {_id: pick._id, name: pick.name}
-		if(previous && String(previous._id) === String(target._id)){
-			return res.status(409).send({error: `${target.name} already has this ticket`})
-		}
 		const me = await user.findById(req.accountId).select('name')
 		const now = new Date()
-		const set = {assignedTo: target._id}
-		const update = {$set: set, $push: {events: {type: 'assignment_change', actor: req.accountId, from: previous?.name, to: target.name, createdAt: now}}}
-		// If it was at the final step, assigning it restarts escalation for the new person
-		if(ticket.escalationExhaustedAt){
-			set.escalationLevel = 0
-			set.escalationClockAt = now
-			update.$unset = {escalationExhaustedAt: 1}
+		// Checking the on-call loads and saving happen under the team's lock (see withTeamLock)
+		const outcome = await withTeamLock(team._id, async () => {
+			const result = await onCallAssignee(team._id)
+			if(!result.loads.length){
+				return {error: `${NO_RESPONDER[result.reason](team.name)}, so this ticket can't be reassigned`}
+			}
+			// The primary or secondary on call, as long as they have fewer than MAX_ACTIVE open incidents
+			const wanted = req.body?.responderId
+			const options = result.loads.filter(l => String(l._id) !== String(previous?._id ?? ''))
+			const pick = wanted ? options.find(l => String(l._id) === String(wanted)) : options.find(l => l.load < MAX_ACTIVE)
+			if(wanted && !pick){
+				const names = result.loads.map(l => `${l.name} (${l.role})`).join(' and ')
+				return {error: `Tickets can only go to whoever is on call for ${team.name} right now: ${names}.`}
+			}
+			if(!pick || pick.load >= MAX_ACTIVE){
+				return {error: pick
+					? `${pick.name} already has ${MAX_ACTIVE} open incidents`
+					: `${NO_RESPONDER['at-capacity'](team.name)}, so this ticket can't be reassigned`}
+			}
+			const target = {_id: pick._id, name: pick.name}
+			if(previous && String(previous._id) === String(target._id)){
+				return {error: `${target.name} already has this ticket`}
+			}
+			const set = {assignedTo: target._id}
+			const update = {$set: set, $push: {events: {type: 'assignment_change', actor: req.accountId, from: previous?.name, to: target.name, createdAt: now}}}
+			// If it was at the final step, assigning it restarts escalation for the new person
+			if(ticket.escalationExhaustedAt){
+				set.escalationLevel = 0
+				set.escalationClockAt = now
+				update.$unset = {escalationExhaustedAt: 1}
+			}
+			// Matching on the old assignee makes this fail if someone else reassigned it first
+			const updated = await Ticket.findOneAndUpdate(
+				{_id: ticket._id, assignedTo: previous?._id ?? null, status: ticket.status},
+				update,
+				{returnDocument: 'after'})
+			if(!updated){
+				return {error: 'Someone else just changed this ticket. Reload and try again.'}
+			}
+			return {updated, target}
+		})
+		if(outcome.error){
+			return res.status(409).send({error: outcome.error})
 		}
-		// Matching on the old assignee makes this fail if someone else reassigned it first
-		const updated = await Ticket.findOneAndUpdate(
-			{_id: ticket._id, assignedTo: previous?._id ?? null, status: ticket.status},
-			update,
-			{returnDocument: 'after'})
-		if(!updated){
-			return res.status(409).send({error: 'Someone else just changed this ticket. Reload and try again.'})
-		}
+		const {updated, target} = outcome
 		await notifyAssigned(updated, target._id, {how: 'lead', by: me?.name})
 		return res.send({
 			message: previous ? `Reassigned from ${previous.name} to ${target.name}` : `Assigned to ${target.name}`,

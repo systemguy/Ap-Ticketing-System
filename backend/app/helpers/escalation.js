@@ -14,7 +14,7 @@ const EscalationPolicy = require('../models/escalationPolicy')
 const Ticket = require('../models/tickets')
 const Service = require('../models/services')
 const User = require('../models/user')
-const { onCallAssignee, MAX_ACTIVE } = require('./shifts')
+const { onCallAssignee, withTeamLock, MAX_ACTIVE } = require('./shifts')
 const { notifyAssigned, notifyFinal } = require('./notify')
 
 // Severity 1-4 -> name used for its time frame
@@ -276,7 +276,8 @@ async function runEscalations(now = new Date()) {
 		const admins = await loadAdmins()
 		for (const ticket of tickets) {
 			try {
-				if (await escalateTicket(ticket, policy, now, people, () => admins)) moved++
+				// Under the team's lock, so an "on call" level can't race a new ticket past the limit
+				if (await withTeamLock(policy.team._id, () => escalateTicket(ticket, policy, now, people, () => admins))) moved++
 			} catch (err) {
 				console.error(`[escalation] ticket ${ticket._id} failed: ${err.message}`)
 			}
