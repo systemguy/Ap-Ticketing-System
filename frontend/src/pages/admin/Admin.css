@@ -39,3 +39,7 @@
 .person-name { color: var(--ink); }
 .row-inactive td { color: var(--muted); }
 .row-inactive .person-name { text-decoration: line-through; text-decoration-color: var(--line-strong); }
+
+/* Small "add" forms in section headers (new team, new service) */
+.inline-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.inline-form .search-input { width: 180px; }

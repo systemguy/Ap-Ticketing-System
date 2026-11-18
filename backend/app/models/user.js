@@ -1,4 +1,5 @@
 const mongoose = require('../../database')
+const { softDelete } = require('../helpers/softDelete')
 const bcrypt = require('bcryptjs')
 
 const UserScheme = new mongoose.Schema({
@@ -69,6 +70,9 @@ UserScheme.pre('save', async function(){
 		this.password = await bcrypt.hash(this.password,10)
 	}
 })
+
+// Deleting only flags it (see helpers/softDelete.js)
+UserScheme.plugin(softDelete)
 
 const user = mongoose.model('User', UserScheme)
 module.exports = user

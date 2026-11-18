@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { departmentServices } from '../data/services';
+import { teamOf, useServices } from '../data/useServices';
 import { SEVERITIES, severityOf } from '../data/severity';
 import { deleteTicket, editTicket, listTickets } from '../api/tickets';
 import { useSession } from '../context/SessionContext';
@@ -20,16 +20,14 @@ function getReporter(incident) {
   return { name: 'Unknown', email: '' };
 }
 
-// The team (department) that handles a service, e.g. "pipe repairs" -> "Plumbing"
-function teamOfService(service) {
-  return Object.keys(departmentServices).find((d) => departmentServices[d].includes(service)) || null;
-}
-
 // Team queue: tickets the user filed plus every open ticket for their team.
 // Residents never reach this page (see RoleRoute); they use their profile.
 function Incidents() {
   const navigate = useNavigate();
   const { userId, logout, myTeams, isAdmin, leads } = useSession();
+  // The team (department) that handles a service, e.g. "pipe repairs" -> "Plumbing"
+  const { byTeam } = useServices();
+  const teamOfService = (service) => teamOf(byTeam, service);
   const [incidents, setIncidents] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [editing, setEditing] = useState(null); // ticket being edited
@@ -79,7 +77,7 @@ function Incidents() {
     const teamName = teamOfService(incident.service || incident.type);
     const team = !filed || isAdmin || myTeamsKey.split('|').includes(teamName);
     return { filed, team, teamName };
-  }, [userId, isAdmin, myTeamsKey]);
+  }, [userId, isAdmin, myTeamsKey, byTeam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function confirmDelete() {
     if (!deleteTarget || deleting) return;

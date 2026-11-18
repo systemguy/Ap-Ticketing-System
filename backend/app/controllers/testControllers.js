@@ -149,8 +149,9 @@ router.post('/register/team', authMiddleware, adminOnly, async(req, res)=>{
 	if(!name)
 		return res.status(400).send({error: 'Team name is required'})
 	try{
-		if(await Team.findOne({name}))
-			return res.status(400).send({error: 'Team already exists'})
+		const existingTeam = await Team.findOne({name})
+		if(existingTeam)
+			return res.status(400).send({error: existingTeam.active === false ? 'Team was deleted. Restore it in the admin portal.' : 'Team already exists'})
 		const team = await Team.create({name})
 		return res.send(team)
 	}catch(err){
@@ -166,9 +167,10 @@ router.post('/register/services', authMiddleware, adminOnly, async(req, res)=>{
 	if(!name)
 		return res.status(400).send({error: 'Service name is required'})
 	try{
-		if(await Service.findOne({name}))
-			return res.status(400).send({error: 'Service already exists'})
-		if(teamId && !await Team.exists({name: teamId}))
+		const existingService = await Service.findOne({name})
+		if(existingService)
+			return res.status(400).send({error: existingService.active === false ? 'Service was deleted. Restore it in the admin portal.' : 'Service already exists'})
+		if(teamId && !await Team.exists({name: teamId, active: {$ne: false}}))
 			return res.status(400).send({error: 'Team does not exist'})
 		const service = await Service.create(teamId ? {name, teamId} : {name})
 		return res.send(service)

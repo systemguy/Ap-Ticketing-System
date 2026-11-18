@@ -266,10 +266,10 @@ async function runEscalations(now = new Date()) {
 	}
 	let moved = 0
 	for (const policy of policies) {
-		if (!policy.team || !policy.levels.length) continue
+		if (!policy.team || policy.team.active === false || !policy.levels.length) continue
 		const services = await Service.find({ teamId: policy.team.name }).select('name')
 		if (!services.length) continue
-		const tickets = await Ticket.find({ status: 'Open', escalationExhaustedAt: null, service: { $in: services.map((s) => s.name) } })
+		const tickets = await Ticket.find({ status: 'Open', escalationExhaustedAt: null, active: { $ne: false }, service: { $in: services.map((s) => s.name) } })
 			.select('title unit service status severity createdAt escalationLevel escalationClockAt escalationExhaustedAt assignedTo')
 			.populate('assignedTo', 'name')
 		const people = new Map()

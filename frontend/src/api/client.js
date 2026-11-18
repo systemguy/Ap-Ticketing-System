@@ -46,6 +46,7 @@ export async function apiFetch(path, options = {}) {
       const body = await res.json();
       message = errorText(body, message);
       if (Array.isArray(body?.error)) list = body.error; // e.g. every problem with a schedule
+      if (Array.isArray(body?.problems)) list = body.problems; // e.g. why something can't be deleted yet
     } catch {
       /* non-JSON error body */
     }

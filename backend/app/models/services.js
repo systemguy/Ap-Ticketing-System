@@ -1,4 +1,5 @@
 const mongoose = require('../../database')
+const { softDelete } = require('../helpers/softDelete')
 const bcrypt = require('bcryptjs')
 
 
@@ -20,6 +21,9 @@ const ServicesScheme = new mongoose.Schema({
     }
   
 }, { timestamps: true })
+
+// Deleting only flags it (see helpers/softDelete.js)
+ServicesScheme.plugin(softDelete)
 
 const services = mongoose.model('Services', ServicesScheme)
 

@@ -11,6 +11,8 @@ const {
 } = require('../helpers/tickets')
 const { onCallAssignee, withTeamLock, MAX_ACTIVE } = require('../helpers/shifts')
 const { notifyAssigned, notifyReporter } = require('../helpers/notify')
+const { NOT_DELETED } = require('../helpers/softDelete')
+const { centralMoment, addDays } = require('../helpers/time')
 
 // Photos come in as image data URLs
 const PHOTO_FORMAT = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/
@@ -39,20 +41,77 @@ const viaSecondary = (result) => result.role === 'secondary'
 
 const QUEUE_ORDER = {escalationExhaustedAt: -1, severity: -1, createdAt: 1}
 
+// Filters any list can use (Sprint 5, for the auditor view). All optional, combined with AND:
+//   severity=3,4                    only these severities
+//   team=HVAC,OIT                   only incidents for services these teams own
+//   excludeTeam=OIT                 everything except these teams' services
+//   service=ac repair               only these services
+//   excludeService=network setup    everything except these services
+//   from=2026-11-01&to=2026-11-30   filed on these days (Central time, both days included).
+//                                   Full ISO times work too.
+// Bad values get a 400, so a typo never silently shows the wrong list.
+const csv = (v) => (typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : [])
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+// Start of a day (or of the next day, for an end date), or an exact ISO time
+function boundary(value, end){
+	if(DAY.test(value)) return centralMoment(end ? addDays(value, 1) : value, 0)
+	const at = new Date(value)
+	return Number.isNaN(+at) ? null : at
+}
+async function filtersFrom(query){
+	const match = {}
+	const severities = csv(query.severity).map(Number)
+	if(severities.some((n) => !Number.isInteger(n) || n < 1 || n > 4)){
+		return {error: 'severity must be numbers from 1 to 4, like severity=3,4'}
+	}
+	if(severities.length) match.severity = {$in: severities}
+	// Teams own services by name. Deleted services still count, so old incidents stay findable.
+	const teamServices = async (teams) => (await Service.find({teamId: {$in: teams}}).select('name')).map((x) => x.name)
+	const rules = []
+	if(csv(query.team).length) rules.push({service: {$in: await teamServices(csv(query.team))}})
+	if(csv(query.excludeTeam).length) rules.push({service: {$nin: await teamServices(csv(query.excludeTeam))}})
+	if(csv(query.service).length) rules.push({service: {$in: csv(query.service)}})
+	if(csv(query.excludeService).length) rules.push({service: {$nin: csv(query.excludeService)}})
+	if(rules.length) match.$and = rules
+	if(query.from || query.to){
+		const from = query.from ? boundary(String(query.from), false) : null
+		const to = query.to ? boundary(String(query.to), true) : null
+		if((query.from && !from) || (query.to && !to)){
+			return {error: 'from and to must be dates like 2026-11-01'}
+		}
+		if(from && to && from >= to){
+			return {error: 'from must be before to'}
+		}
+		match.createdAt = {}
+		if(from) match.createdAt.$gte = from
+		if(to) match.createdAt[DAY.test(String(query.to)) ? '$lt' : '$lte'] = to
+	}
+	return {match}
+}
+
 // Tickets you filed, plus every ticket for your home team and any team you lead.
-// Admins see every ticket. Final-step tickets come first, then most severe, then oldest.
+// Admins and auditors see every ticket. Final-step tickets come first, then most severe, then oldest.
+// Deleted tickets are left out, except for auditors (who see everything, all time, each marked
+// active: false) and admins who ask for them with includeDeleted=1.
 router.get('/', async (req, res)=>{
 	try{
 	const {accountId, team} = req
 	const me = await user.findById(accountId).select('role')
-	if(me?.role === 'admin'){
-		const tickets = await Ticket.find().select('-events').sort(QUEUE_ORDER).populate('userPosted', 'name email').populate('assignedTo', 'name email')
+	const filters = await filtersFrom(req.query)
+	if(filters.error){
+		return res.status(400).json({error: filters.error})
+	}
+	const showDeleted = me?.role === 'auditor' || (me?.role === 'admin' && ['1', 'true'].includes(String(req.query.includeDeleted)))
+	const base = {...filters.match, ...(showDeleted ? {} : NOT_DELETED)}
+	if(me?.role === 'admin' || me?.role === 'auditor'){
+		const tickets = await Ticket.find(base).select('-events').sort(QUEUE_ORDER).populate('userPosted', 'name email').populate('assignedTo', 'name email')
 		return res.status(200).json({ tickets })
 	}
 	const myTeams = [...new Set([team, ...await teamsLedBy(accountId)])].filter(t => t && t !== 'user')
 	const services = await Service.find({ teamId: {$in: myTeams} }).select('name');
 	const serviceNames = services.map(service => service.name);
 	const tickets = await Ticket.find({
+					...base,
 					$or:[{userPosted: accountId},
 					 {service: { $in: serviceNames }} ]
 					}).select('-events').sort(QUEUE_ORDER).populate('userPosted', 'name email').populate('assignedTo', 'name email');
@@ -73,6 +132,10 @@ router.post('/create', async(req, res)=>{
 		const serviceExists = typeof service === 'string' && await Service.findOne({name:service})
 		if(!serviceExists){
 			return res.status(400).json({error:"invalid service"})
+		}
+		// Deleted services (and services of deleted teams) can't get new incidents
+		if(serviceExists.active === false || (serviceExists.teamId && !await Team.exists({name: serviceExists.teamId, ...NOT_DELETED}))){
+			return res.status(400).json({error: `"${service}" is no longer offered. Pick another service.`})
 		}
 		if(!isValidSeverity(severity)){
 			return res.status(400).json({error:"invalid severity"})
@@ -135,13 +198,16 @@ router.post('/create', async(req, res)=>{
 router.put('/delete/:ticketId', async(req, res) =>{
 	try{
 		const ticket = await Ticket.findById(req.params.ticketId)
-		if(!ticket){
+		if(!ticket || ticket.active === false){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
 		if(!isTicketOwner(req.accountId, ticket)){
 			return res.status(403).send({error: 'Only the person who filed this ticket can delete it'})
 		}
-		await ticket.deleteOne()
+		// Soft delete: it leaves every list but stays in history (auditors and analytics still see it)
+		const update = Ticket.deletionUpdate(req.accountId, true)
+		update.$push.events = {type: 'deleted', actor: req.accountId, createdAt: update.$set.deletedAt}
+		await Ticket.updateOne({_id: ticket._id}, update)
 		return res.send({deleted: true, ticketId: ticket.id})
 	}catch(err){
 		console.log(err)
@@ -154,7 +220,7 @@ router.put('/delete/:ticketId', async(req, res) =>{
 router.put('/edit/:ticketId', async(req, res) =>{
 	try{
 		const ticket = await Ticket.findById(req.params.ticketId)
-		if(!ticket){
+		if(!ticket || ticket.active === false){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
 		if(!isTicketOwner(req.accountId, ticket)){
@@ -167,6 +233,9 @@ router.put('/edit/:ticketId', async(req, res) =>{
 		}
 		if(typeof service !== 'string' || !await Service.exists({name: service})){
 			return res.status(400).send({error: 'invalid service'})
+		}
+		if(service !== ticket.service && !await Service.exists({name: service, ...NOT_DELETED})){
+			return res.status(400).send({error: `"${service}" is no longer offered. Pick another service.`})
 		}
 		if(!isValidSeverity(severity)){
 			return res.status(400).send({error: 'invalid severity'})
@@ -231,7 +300,7 @@ router.put('/edit/:ticketId', async(req, res) =>{
 router.put('/update/:ticketId', async(req, res) =>{
 	try{
 		const ticket = await Ticket.findById(req.params.ticketId)
-		if(!ticket){
+		if(!ticket || ticket.active === false){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
 		const access = await ticketAccess(req, ticket)
@@ -308,13 +377,24 @@ router.get('/:ticketId', async(req, res) =>{
 			.populate('userPosted', 'name email')
 			.populate('assignedTo', 'name email')
 			.populate('events.actor', 'name')
+			.populate('deletedBy', 'name')
 		if(!ticket){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
-		const {owner, solver, lead, admin, team} = await ticketAccess(req, ticket)
-		if(!owner && !solver && !lead && !admin){
+		const access = await ticketAccess(req, ticket)
+		// Auditors read every ticket (and its whole timeline) but can't change anything
+		const {owner, auditor} = access
+		// Admins and auditors still see deleted tickets; for everyone else they're gone
+		if(ticket.active === false && !access.admin && !auditor){
+			return res.status(404).send({error: 'Ticket not found'})
+		}
+		if(!owner && !access.solver && !access.lead && !access.admin && !auditor){
 			return res.status(403).send({error: "You don't have access to this ticket"})
 		}
+		// Nobody works a deleted ticket, so it's read-only for everyone
+		const live = ticket.active !== false
+		const solver = access.solver && live, lead = access.lead && live, admin = access.admin && live
+		const team = access.team
 		const data = ticket.toObject()
 		// Tickets filed before the timeline existed still show when they were filed
 		if(!data.events.some(e => e.type === 'created')){
@@ -349,7 +429,9 @@ router.get('/:ticketId', async(req, res) =>{
 		}
 		return res.send({
 			ticket: data,
-			role: owner && !staff ? 'reporter' : 'solver',
+			role: auditor && !staff && !owner ? 'auditor' : owner && !staff ? 'reporter' : staff ? 'solver' : 'viewer',
+			// Auditors (and anyone looking at a deleted ticket) can only read it
+			readOnly: !staff && !(owner && live),
 			isLead: lead || admin,
 			// After it's acknowledged, only whoever has it (or the lead or an admin) moves it along
 			nextStatuses: staff && (data.status === 'Open' || lead || admin || String(data.assignedTo?._id ?? '') === String(req.accountId))
@@ -374,7 +456,7 @@ router.post('/:ticketId/comments', async(req, res) =>{
 			return res.status(400).send({error: 'Comments must be 1000 characters or fewer'})
 		}
 		const ticket = await Ticket.findById(req.params.ticketId)
-		if(!ticket){
+		if(!ticket || ticket.active === false){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
 		const access = await ticketAccess(req, ticket)
@@ -399,7 +481,7 @@ router.post('/:ticketId/comments', async(req, res) =>{
 router.put('/:ticketId/assign', async(req, res) =>{
 	try{
 		const ticket = await Ticket.findById(req.params.ticketId).populate('assignedTo', 'name')
-		if(!ticket){
+		if(!ticket || ticket.active === false){
 			return res.status(404).send({error: 'Ticket not found'})
 		}
 		const {lead, admin, team} = await ticketAccess(req, ticket)

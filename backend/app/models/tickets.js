@@ -1,4 +1,5 @@
 const mongoose = require('../../database')
+const { softDelete } = require('../helpers/softDelete')
 
 
 // Timeline entries the system adds on its own (no person did them)
@@ -146,6 +147,9 @@ const TicketScheme= new mongoose.Schema({
 
 })
 
+
+// Deleting only flags it (see helpers/softDelete.js)
+TicketScheme.plugin(softDelete)
 
 const ticket = mongoose.model('Ticket', TicketScheme)
 
