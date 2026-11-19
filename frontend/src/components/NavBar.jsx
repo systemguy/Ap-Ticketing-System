@@ -26,7 +26,7 @@ function useUnread(loggedIn, pathname) {
 }
 
 function NavBar() {
-  const { loggedIn, user, canSeeQueue, isAdmin, isLead, logout } = useSession();
+  const { loggedIn, user, canSeeQueue, isAdmin, isAuditor, isLead, logout } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false); // mobile menu
@@ -61,6 +61,7 @@ function NavBar() {
         <NavLink to="/services">Services</NavLink>
         {loggedIn && <NavLink to="/tickets/new">Report an Issue</NavLink>}
         {canSeeQueue && <NavLink to="/incidents">Team Queue</NavLink>}
+        {!canSeeQueue && isAuditor && <NavLink to="/incidents">All Incidents</NavLink>}
         {canSeeQueue && <NavLink to="/schedule">Schedule</NavLink>}
         {canSeeQueue && <NavLink to="/escalation">Escalation</NavLink>}
         {(isAdmin || isLead) && <NavLink to="/performance">Performance</NavLink>}

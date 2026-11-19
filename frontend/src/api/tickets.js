@@ -1,8 +1,20 @@
 import { apiFetch } from './client';
 
-// Tickets the user filed plus every ticket for their team's services
-export const listTickets = () =>
-  apiFetch('/tickets').then((data) => (Array.isArray(data) ? data : data?.tickets || []));
+// Tickets the user filed plus every ticket for their team's services.
+// Admins and auditors get every ticket (auditors also get deleted ones, with active: false).
+// filters (all optional, combined with AND), e.g. { severity: [3, 4], team: ['HVAC'],
+// excludeService: ['network setup'], from: '2026-11-01', to: '2026-11-30' }.
+// Lists are sent comma-separated; empty values are left out.
+export function listTickets(filters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    const text = Array.isArray(value) ? value.join(',') : value;
+    if (text !== undefined && text !== null && String(text) !== '') params.set(key, String(text));
+  }
+  const query = params.toString();
+  return apiFetch(`/tickets${query ? `?${query}` : ''}`)
+    .then((data) => (Array.isArray(data) ? data : data?.tickets || []));
+}
 
 // payload: { title, description, unit, service, severity, type, photo? }
 // Returns { ticket, assignment }. assignment.to is who got it, or null with a reason.

@@ -33,9 +33,14 @@ function App() {
           {/* Uptime and speed (for team leads and admins) */}
           <Route path="/performance" element={<PerformancePage />} />
 
-          {/* Staff and admins only. Residents see their incidents on their profile. */}
-          <Route element={<RoleRoute allow="queue" />}>
+          {/* Staff and admins get the team queue; auditors get the read-only audit view of every incident.
+              Residents see their incidents on their profile. */}
+          <Route element={<RoleRoute allow="incidents" />}>
             <Route path="/incidents" element={<Incidents />} />
+          </Route>
+
+          {/* Staff and admins only */}
+          <Route element={<RoleRoute allow="queue" />}>
             {/* On-call calendar, one page per team. Leads (and admins) can add and change shifts. */}
             <Route path="/schedule" element={<SchedulePage />} />
             <Route path="/schedule/:team" element={<SchedulePage />} />

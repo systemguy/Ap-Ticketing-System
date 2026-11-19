@@ -6,6 +6,7 @@ import { deleteTicket, editTicket, listTickets } from '../api/tickets';
 import { useSession } from '../context/SessionContext';
 import { formatStatus, isClosed, isFiledBy } from '../utils/incidents';
 import TicketForm from '../components/TicketForm';
+import AuditIncidents from './AuditIncidents';
 
 // The backend populates userPosted with { name, email } when it lists tickets.
 // Fall back gracefully if it is missing (e.g. the account was removed).
@@ -20,9 +21,15 @@ function getReporter(incident) {
   return { name: 'Unknown', email: '' };
 }
 
+// Auditors aren't on a team: they get the read-only list of every incident instead of a queue
+function Incidents() {
+  const { isAuditor, isStaff, isAdmin } = useSession();
+  return isAuditor && !isStaff && !isAdmin ? <AuditIncidents /> : <TeamQueue />;
+}
+
 // Team queue: tickets the user filed plus every open ticket for their team.
 // Residents never reach this page (see RoleRoute); they use their profile.
-function Incidents() {
+function TeamQueue() {
   const navigate = useNavigate();
   const { userId, logout, myTeams, isAdmin, leads } = useSession();
   // The team (department) that handles a service, e.g. "pipe repairs" -> "Plumbing"

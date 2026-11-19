@@ -74,7 +74,10 @@ export function SessionProvider({ children }) {
 
   const value = useMemo(() => {
     const loggedIn = Boolean(claims);
-    const isAdmin = String(user?.role || '').toLowerCase() === 'admin';
+    const role = String(user?.role || '').toLowerCase();
+    const isAdmin = role === 'admin';
+    // Auditors (Sprint 5) read every incident, all teams and all time, but can't change anything
+    const isAuditor = role === 'auditor';
     const isStaff = loggedIn && !isResidentTeam(claims?.team);
     // Team lead is not a role: it's the teams this person leads (from /users/me)
     const leads = (user?.leads || []).map((t) => t.name);
@@ -86,6 +89,7 @@ export function SessionProvider({ children }) {
       user,
       loadingUser,
       isAdmin,
+      isAuditor,
       isStaff,
       leads,
       isLead: leads.length > 0,
@@ -93,6 +97,8 @@ export function SessionProvider({ children }) {
       myTeams: [...new Set([homeTeam, ...leads].filter(Boolean))],
       // Staff and admins work the team queue; residents use their profile
       canSeeQueue: isStaff || isAdmin,
+      // The incident list: the team queue for staff and admins, the read-only audit view for auditors
+      canSeeIncidents: isStaff || isAdmin || isAuditor,
       setUser,
       refresh,
       logout,

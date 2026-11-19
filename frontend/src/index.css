@@ -638,3 +638,47 @@ tr.row-final td:first-child { box-shadow: inset 6px 0 0 var(--danger); }
 .perf-dot-bad { background: var(--danger); }
 .perf-final { color: var(--danger); font-weight: 600; }
 .perf-list { margin: 0 0 12px; padding-left: 20px; }
+
+/* ---- Auditor view (Sprint 5): every incident, read-only, with filters ---- */
+
+.audit-filters { display: grid; gap: 18px; padding: 24px; margin-bottom: 20px; }
+.audit-filter { border: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.audit-filter legend {
+  float: left;
+  width: 90px;
+  padding: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.audit-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.audit-chip {
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  color: var(--text-soft);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.audit-chip:hover { border-color: var(--accent); }
+.audit-chip.active { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.audit-chip.audit-chip-except { background: var(--danger); border-color: var(--danger); text-decoration: line-through; }
+.audit-dates { display: flex; flex-wrap: wrap; gap: 12px; }
+.audit-dates label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); }
+.audit-date { padding-right: 10px; background-image: none; }
+.audit-range { margin: 0; width: 100%; padding-left: 100px; }
+.audit-filter-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 14px; }
+.audit-filter-foot .checkbox { margin: 0; }
+.audit-count { margin: 0 0 10px; }
+.row-deleted td { background: var(--surface-soft); color: var(--muted); }
+.row-deleted td a { color: var(--muted); }
+.tag.tag-deleted { border-color: var(--danger); color: var(--danger); }
+.nowrap { white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .audit-filter legend { float: none; width: 100%; }
+  .audit-range { padding-left: 0; }
+}

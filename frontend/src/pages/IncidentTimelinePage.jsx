@@ -167,7 +167,7 @@ export default function IncidentTimelinePage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout, canSeeQueue } = useSession();
+  const { logout, canSeeQueue, isAuditor } = useSession();
   const [data, setData] = useState(null); // { ticket, role, nextStatuses } from GET /tickets/:id
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -178,7 +178,9 @@ export default function IncidentTimelinePage() {
   const [pending, setPending] = useState(null); // status waiting on confirmation
   const [reassigning, setReassigning] = useState(false); // reassign confirmation open
 
-  const back = canSeeQueue ? { to: '/incidents', label: 'Back to team queue' } : { to: '/profile', label: 'Back to my incidents' };
+  const back = canSeeQueue ? { to: '/incidents', label: 'Back to team queue' }
+    : isAuditor ? { to: '/incidents', label: 'Back to all incidents' }
+    : { to: '/profile', label: 'Back to my incidents' };
 
   // An expired login comes back as 401: clear it and go to the login page
   const handleAuthError = useCallback((err) => {
