@@ -52,7 +52,7 @@ router.patch('/me', async(req, res) =>{
 // Tickets this user filed or is assigned to, newest first. The profile page splits them into columns.
 router.get('/me/tickets', async(req, res) =>{
 	try{
-		const tickets = await Ticket.find({$or: [{userPosted: req.accountId}, {assignedTo: req.accountId}]})
+		const tickets = await Ticket.find({$or: [{userPosted: req.accountId}, {assignedTo: req.accountId}], active: {$ne: false}})
 			.select('-events')
 			.sort({createdAt: -1})
 			.populate('userPosted', 'name email')

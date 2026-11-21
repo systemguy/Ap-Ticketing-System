@@ -1,26 +1,38 @@
-import { useState } from 'react';
-import { departmentServices, departments, serviceLabel } from '../data/services';
+import { useEffect, useState } from 'react';
+import { serviceLabel } from '../data/services';
+import { teamOf, useServices } from '../data/useServices';
 import { SEVERITIES } from '../data/severity';
 import { ACCEPTED_IMAGE_TYPES, compressImage } from '../utils/images';
-
-// The backend stores only the service, so find its department for the edit form.
-function departmentOf(service) {
-  return departments.find((d) => departmentServices[d].includes(service)) || departments[0];
-}
 
 // Shared by "Report an issue" (/tickets/new) and the edit form on the team queue.
 // onSubmit(payload) should throw an Error with a readable message if saving fails;
 // the form stays filled in so nothing typed is lost.
+// The departments and services come from the backend, so deleted ones aren't offered.
 export default function TicketForm({ initial = null, onSubmit, onCancel, submitLabel }) {
   const editing = Boolean(initial);
+  const { byTeam: departmentServices, teams: departments, loaded } = useServices();
   const initialService = initial ? initial.service || initial.type || '' : '';
+  // The backend stores only the service, so find its department for the edit form
+  const departmentOf = (svc) => teamOf(departmentServices, svc) || departments[0];
   const initialDepartment = initialService ? departmentOf(initialService) : departments[0];
 
   const [title, setTitle] = useState(initial?.title || '');
   const [description, setDescription] = useState(initial?.description || '');
   const [unit, setUnit] = useState(initial?.unit || '');
   const [department, setDepartment] = useState(initialDepartment);
-  const [service, setService] = useState(initialService || departmentServices[initialDepartment][0]);
+  const [service, setService] = useState(initialService || departmentServices[initialDepartment]?.[0] || '');
+
+  // When the live list arrives, move off a department or service that no longer exists
+  useEffect(() => {
+    if (!loaded) return;
+    if (editing && initialService) {
+      setDepartment(departmentOf(initialService));
+    } else if (!departmentServices[department]?.includes(service)) {
+      const team = departmentServices[department] ? department : departments[0];
+      setDepartment(team);
+      setService(departmentServices[team]?.[0] || '');
+    }
+  }, [loaded]); // eslint-disable-line react-hooks/exhaustive-deps
   const [severity, setSeverity] = useState(initial?.severity ? String(initial.severity) : '');
   const [photo, setPhoto] = useState(''); // compressed data URL
   const [photoNote, setPhotoNote] = useState('');
@@ -34,7 +46,7 @@ export default function TicketForm({ initial = null, onSubmit, onCancel, submitL
 
   function changeDepartment(next) {
     setDepartment(next);
-    setService(departmentServices[next][0]);
+    setService(departmentServices[next]?.[0] || '');
   }
 
   async function choosePhoto(e) {

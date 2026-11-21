@@ -78,6 +78,8 @@ function describe(event) {
       const from = nameOf(event.from);
       return (from ? `${head}: reassigned from ${from} to ${nameOf(event.to)}.` : `${head}: assigned to ${nameOf(event.to)}.`) + skipped;
     }
+    case 'deleted':
+      return `${actor} deleted this incident. It no longer shows in any list, but it stays in the history.`;
     case 'final_escalation': {
       const from = nameOf(event.from);
       return `FINAL ESCALATION: nobody acknowledged it through every level of the policy${from ? `, so it was taken from ${from}` : ''}. It is now unassigned and pinned to the top of the team queue; the team lead and admins were notified.`;
@@ -165,7 +167,7 @@ export default function IncidentTimelinePage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout, canSeeQueue } = useSession();
+  const { logout, canSeeQueue, isAuditor } = useSession();
   const [data, setData] = useState(null); // { ticket, role, nextStatuses } from GET /tickets/:id
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -176,7 +178,9 @@ export default function IncidentTimelinePage() {
   const [pending, setPending] = useState(null); // status waiting on confirmation
   const [reassigning, setReassigning] = useState(false); // reassign confirmation open
 
-  const back = canSeeQueue ? { to: '/incidents', label: 'Back to team queue' } : { to: '/profile', label: 'Back to my incidents' };
+  const back = canSeeQueue ? { to: '/incidents', label: 'Back to team queue' }
+    : isAuditor ? { to: '/incidents', label: 'Back to all incidents' }
+    : { to: '/profile', label: 'Back to my incidents' };
 
   // An expired login comes back as 401: clear it and go to the login page
   const handleAuthError = useCallback((err) => {
@@ -399,6 +403,13 @@ export default function IncidentTimelinePage() {
         </ol>
       )}
 
+      {data.readOnly ? (
+        <p className="muted" role="note">
+          {ticket.active === false
+            ? 'This incident was deleted, so it is read-only.'
+            : 'You have read-only access to this incident.'}
+        </p>
+      ) : (
       <form className="pf-comment-form" onSubmit={postComment}>
         <label htmlFor="ticket-comment" className="pf-comment-label">
           {isSolver ? 'Add a note for the reporter' : 'Add a comment for the team'}
@@ -418,6 +429,7 @@ export default function IncidentTimelinePage() {
           </button>
         </div>
       </form>
+      )}
 
       {pending && (
         <ConfirmStatusDialog

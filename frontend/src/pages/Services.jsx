@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom';
-import { departmentServices, serviceLabel } from '../data/services';
+import { serviceLabel } from '../data/services';
+import { useServices } from '../data/useServices';
 import { useSession } from '../context/SessionContext';
 
 function Services() {
   const { loggedIn } = useSession();
+  // From the backend, so deleted services and teams aren't listed
+  const { byTeam: departmentServices } = useServices();
 
   return (
     <main className="page">

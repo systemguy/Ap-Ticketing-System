@@ -116,9 +116,9 @@ const canManage = (user, team) => user?.role === 'admin' || (Boolean(leadId(team
 // Teams whose schedule a user can see: their home team and any team they lead (admins see all).
 // Empty for reporters.
 function visibleTeams(user) {
-	if (user.role === 'admin') return Team.find().sort({ name: 1 })
+	if (user.role === 'admin') return Team.find({ active: { $ne: false } }).sort({ name: 1 })
 	const home = user.team ? [user.team] : []
-	return Team.find({ $or: [{ name: { $in: home } }, { lead: user._id }] }).sort({ name: 1 })
+	return Team.find({ $or: [{ name: { $in: home } }, { lead: user._id }], active: { $ne: false } }).sort({ name: 1 })
 }
 
 // A team given by id or by name ("HVAC"). The schedule page sends names today.
@@ -148,7 +148,7 @@ async function whoIsOnCall(teamId, at = new Date()) {
 }
 
 // How many open incidents (Open, Acknowledged, Investigating) a person has right now
-const activeLoad = (userId) => Ticket.countDocuments({ assignedTo: userId, status: { $in: ACTIVE } })
+const activeLoad = (userId) => Ticket.countDocuments({ assignedTo: userId, status: { $in: ACTIVE }, active: { $ne: false } })
 
 // Runs one assignment at a time per team. Without this, a burst of new tickets (the Sprint 5
 // spike test) all read "2 open incidents" before any of them is saved, and someone ends up

@@ -58,9 +58,11 @@ async function ticketAccess(req, ticket) {
 		ticketTeam(ticket),
 		isTicketSolver(req.team, ticket),
 	])
-	const admin = me?.role === 'admin'
+	const admin = me?.role === 'admin' && me.active !== false
+	// Auditors can read every ticket but never change one (no flag below lets them)
+	const auditor = me?.role === 'auditor' && me.active !== false
 	const lead = Boolean(team?.lead) && String(team.lead) === String(req.accountId)
-	return { owner: isTicketOwner(req.accountId, ticket), solver, lead, admin, team }
+	return { owner: isTicketOwner(req.accountId, ticket), solver, lead, admin, auditor, team }
 }
 
 // Names of the teams a user leads ("who leads team X" is the lead field on the team)

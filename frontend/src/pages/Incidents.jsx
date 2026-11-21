@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { departmentServices } from '../data/services';
+import { teamOf, useServices } from '../data/useServices';
 import { SEVERITIES, severityOf } from '../data/severity';
 import { deleteTicket, editTicket, listTickets } from '../api/tickets';
 import { useSession } from '../context/SessionContext';
 import { formatStatus, isClosed, isFiledBy } from '../utils/incidents';
 import TicketForm from '../components/TicketForm';
+import AuditIncidents from './AuditIncidents';
 
 // The backend populates userPosted with { name, email } when it lists tickets.
 // Fall back gracefully if it is missing (e.g. the account was removed).
@@ -20,16 +21,20 @@ function getReporter(incident) {
   return { name: 'Unknown', email: '' };
 }
 
-// The team (department) that handles a service, e.g. "pipe repairs" -> "Plumbing"
-function teamOfService(service) {
-  return Object.keys(departmentServices).find((d) => departmentServices[d].includes(service)) || null;
+// Auditors aren't on a team: they get the read-only list of every incident instead of a queue
+function Incidents() {
+  const { isAuditor, isStaff, isAdmin } = useSession();
+  return isAuditor && !isStaff && !isAdmin ? <AuditIncidents /> : <TeamQueue />;
 }
 
 // Team queue: tickets the user filed plus every open ticket for their team.
 // Residents never reach this page (see RoleRoute); they use their profile.
-function Incidents() {
+function TeamQueue() {
   const navigate = useNavigate();
   const { userId, logout, myTeams, isAdmin, leads } = useSession();
+  // The team (department) that handles a service, e.g. "pipe repairs" -> "Plumbing"
+  const { byTeam } = useServices();
+  const teamOfService = (service) => teamOf(byTeam, service);
   const [incidents, setIncidents] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [editing, setEditing] = useState(null); // ticket being edited
@@ -79,7 +84,7 @@ function Incidents() {
     const teamName = teamOfService(incident.service || incident.type);
     const team = !filed || isAdmin || myTeamsKey.split('|').includes(teamName);
     return { filed, team, teamName };
-  }, [userId, isAdmin, myTeamsKey]);
+  }, [userId, isAdmin, myTeamsKey, byTeam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function confirmDelete() {
     if (!deleteTarget || deleting) return;
